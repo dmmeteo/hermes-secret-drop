@@ -477,6 +477,17 @@ Two rendering rules complete it, and they are stronger than the schema:
   was. So the label in the message is a constant. The payload's title and labels
   render on the page, where they cannot be markup at all.
 
+  The blockquote card the notices are rendered as does not weaken this. The card is
+  a fixed `> ` prefix the broker applies to its own constant lines; no payload
+  string is interpolated into it, and it adds no construct that could carry one. It
+  is also *only* a prefix — the notice still travels as ordinary message `content`
+  through `adapter.send` / `adapter.edit_message`, never as a platform SDK object
+  and never through a `metadata` key, so there is no rich payload for a
+  model-composed string to reach. A Discord embed is not used at all: none is
+  reachable through the adapter interface on either the send or the edit path, which
+  is asserted against the real adapter's own source rather than assumed
+  (`integrations/hermes-drop/tests/test_notice_adapter_seam.py`).
+
 ### What it does not guarantee
 
 - **The outbound tool's *arguments* carry the secret, and nothing in this plugin sits

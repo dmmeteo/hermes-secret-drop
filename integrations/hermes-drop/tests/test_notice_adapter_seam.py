@@ -216,7 +216,7 @@ def test_quiet_notices_render_as_bold_through_a_finalizing_edit(notices) -> None
 
     With ``finalize=False`` Telegram's ``edit_message`` calls
     ``edit_message_text(text=content)`` with **no** ``parse_mode``
-    (``adapter.py:4755-4761``), so ``✓ **Private input received**`` lands with
+    (``adapter.py:4755-4761``), so ``> ✓ **Private input received**`` lands with
     its asterisks showing. Only the ``finalize=True`` branch runs
     ``format_message`` + ``MARKDOWN_V2`` (``:4765-4771``).
 
@@ -228,8 +228,8 @@ def test_quiet_notices_render_as_bold_through_a_finalizing_edit(notices) -> None
     created, _ = notices["telegram"]
 
     for key, raw in (
-        ("notice_received", "✓ **Private input received**"),
-        ("notice_expired", "✕ **Private input link expired**"),
+        ("notice_received", "> ✓ **Private input received**"),
+        ("notice_expired", "> ✕ **Private input link expired**"),
     ):
         # The raw contract is unchanged — pinned here against the real broker so
         # a "fix" to the rendering cannot quietly rewrite the wire contract.
@@ -424,3 +424,238 @@ def test_the_outbound_notice_is_never_rich_eligible(outbound_notices) -> None:
     adapter = telegram_adapter()
     created, _fragment = outbound_notices["telegram"]
     assert not adapter._needs_rich_rendering(created["notice"])
+
+
+# ── the native card: a real blockquote, and provably not a Discord embed ────
+#
+# The packet this work came from asked for each platform's *native* message
+# rendering, with a colored accent per lifecycle state on Discord. Half of that
+# is reachable and half is not, and the tests in this section pin both halves so
+# the boundary is executable rather than a claim in a commit message.
+#
+# Reachable: a native blockquote card. Telegram's ``format_message`` turns a
+# leading ``>`` into a real MarkdownV2 blockquote (step 9, ``adapter.py:4959``)
+# and Discord renders ``>`` as a blockquote client-side. The card therefore
+# renders natively on both verified platforms through the ordinary
+# ``adapter.send`` / ``adapter.edit_message`` string interface the plugin
+# already uses — no core change, no new capability, no SDK call.
+#
+# NOT reachable: a Discord embed, and so no accent color. ``DiscordAdapter.send``
+# posts ``channel.send(content=…)`` and ``DiscordAdapter.edit_message`` posts
+# ``msg.edit(content=…)``; the adapter contract types the payload as
+# ``content: str`` (``gateway/platforms/base.py:2399``, ``:2412``) and Discord
+# reads only ``thread_id`` and ``notify`` out of ``metadata``. The adapter's own
+# embeds live in private fixed-shape prompt builders which all attach a
+# ``discord.ui.View`` and, decisively, have no embed-carrying *edit* counterpart —
+# so an embed could not survive a lifecycle transition even if one could be sent.
+#
+# ``test_a_discord_notice_is_a_markdown_quote_and_not_an_embed`` is the canary for
+# that: it reads the real adapter's own source. If upstream ever threads an embed
+# through the generic send/edit path, it fails, and the accent-color half of the
+# packet becomes buildable.
+
+#: A line of a rendered card. ``\>`` (escaped) means MarkdownV2 refused the
+#: blockquote and the user sees a literal ``>`` — the exact failure this guards.
+_CARD_PREFIX = "> "
+_ESCAPED_QUOTE = "\\>"
+
+
+def _all_four_classes(created, outbound_created, platform):
+    """The four user-visible semantic classes, as the raw strings we post/edit.
+
+    Keyed by the product's own vocabulary rather than invented state names:
+    inbound waiting, inbound received, inbound expired, outbound ready. These are
+    the only four a user ever sees — an outbound drop is posted once and never
+    edited (the broker destroys it on reveal and cannot attribute that reveal to
+    a conversation), so there is no outbound claimed/expired notice to render.
+    """
+    return {
+        "waiting": created["notice"],
+        "received": created["notice_received"],
+        "expired": created["notice_expired"],
+        "outbound_ready": outbound_created["notice"],
+    }
+
+
+def test_telegram_renders_every_class_as_a_native_blockquote(
+    notices, outbound_notices
+) -> None:
+    """Each class becomes a real MarkdownV2 blockquote, not an escaped ``\\>``.
+
+    This is the assertion that separates "native rendering" from "a ``>`` in the
+    text": ``format_message`` escapes a ``>`` it does not recognise as a
+    blockquote, and an escaped ``\\>`` is displayed literally. Asserting the
+    prefix survives *unescaped* on every line is asserting Telegram will draw
+    the quote block.
+    """
+    adapter = telegram_adapter()
+    created, _ = notices["telegram"]
+    outbound_created, _ = outbound_notices["telegram"]
+
+    for name, raw in _all_four_classes(created, outbound_created, "telegram").items():
+        assert raw.splitlines(), f"{name}: renders nothing"
+        for line in raw.splitlines():
+            assert line.startswith(_CARD_PREFIX), (
+                f"{name}: the broker must card every line; got {line!r}"
+            )
+
+        formatted = adapter.format_message(raw)
+        assert _ESCAPED_QUOTE not in formatted, (
+            f"{name}: the quote marker was ESCAPED, so Telegram draws a literal "
+            f"'>' instead of a blockquote: {formatted!r}"
+        )
+        for line in formatted.splitlines():
+            assert line.startswith(_CARD_PREFIX), (
+                f"{name}: every rendered line must stay in the quote; got {line!r}"
+            )
+
+
+def test_the_card_survives_the_lifecycle_edit_and_not_just_the_send(notices) -> None:
+    """The one-message lifecycle: the card must hold on the *edit* path too.
+
+    ``send`` formats unconditionally, but ``edit_message`` only formats when
+    ``finalize=True``: the ``finalize=False`` branch calls ``edit_message_text``
+    with **no** ``parse_mode``, which would display the card marker as a literal
+    ``>`` (the same M7 trap that used to show ``**``). ``OriginMessenger.edit``
+    passes ``finalize=True`` — asserted in ``test_messenger.py`` — and this
+    asserts the formatting that branch applies actually preserves the card, for
+    the two states an edit ever writes.
+    """
+    adapter = telegram_adapter()
+    created, _ = notices["telegram"]
+
+    for key in ("notice_received", "notice_expired"):
+        raw = created[key]
+        # What the finalize=True branch formats with (`adapter.py:3491`).
+        formatted = adapter.format_message(raw)
+        assert formatted.startswith(_CARD_PREFIX), (
+            f"{key}: the edited message must still open a blockquote; got {formatted!r}"
+        )
+        assert _ESCAPED_QUOTE not in formatted, f"{key}: card marker escaped on the edit path"
+
+        # The plain-text fallback path (`_edit_markdown_or_plain`'s second
+        # argument) must still be safe and readable, card or no card.
+        plain = _strip_mdv2(raw)
+        assert "Private input" in plain
+        assert "http" not in plain, f"{key}: the fallback must carry no URL either"
+
+
+def test_the_expandable_blockquote_form_is_deliberately_not_used(notices) -> None:
+    """Why the card is ``>`` and not Telegram's expandable ``**>`` … ``||``.
+
+    Stock's step-5 bold conversion runs *before* step-9 blockquote conversion, so
+    a ``**>`` prefix is eaten by the bold regex and the result is corrupt markup;
+    the ``||`` terminator also only closes on a single line. This pins the reason
+    against the real adapter so nobody "upgrades" the card to the expandable form
+    and ships broken output.
+    """
+    adapter = telegram_adapter()
+    created, _ = notices["telegram"]
+
+    expandable = "**> " + created["notice_received"].removeprefix(_CARD_PREFIX) + "||"
+    formatted = adapter.format_message(expandable)
+    assert not formatted.startswith("**>"), (
+        "if stock ever converts the expandable form correctly, revisit the card shape: "
+        f"{formatted!r}"
+    )
+
+
+def test_discord_passes_every_class_through_untouched(notices, outbound_notices) -> None:
+    """Discord's ``format_message`` must not mutate the card.
+
+    Discord renders ``>`` as a blockquote client-side, so the only requirement on
+    the adapter is that it leaves the string alone — its ``format_message`` is a
+    table-to-bullets pass and otherwise a passthrough. Byte-equality is the
+    strongest form of that and the one worth pinning.
+    """
+    adapter = discord_adapter()
+    created, _ = notices["discord"]
+    outbound_created, _ = outbound_notices["discord"]
+
+    for name, raw in _all_four_classes(created, outbound_created, "discord").items():
+        assert adapter.format_message(raw) == raw, f"{name}: Discord mutated the card"
+        for line in raw.splitlines():
+            assert line.startswith(_CARD_PREFIX), f"{name}: uncarded line {line!r}"
+
+
+def test_a_discord_notice_is_a_markdown_quote_and_not_an_embed(notices) -> None:
+    """The packet's "distinguish a genuine embed from a Markdown quote" test.
+
+    Read against the real adapter's own source rather than a mock, because the
+    claim being pinned is about the adapter, not about us: neither the generic
+    send path nor the edit path passes an ``embed``, so a notice posted through
+    ``OriginMessenger`` is necessarily message *content* — a Markdown blockquote.
+
+    This is a canary. If it fails because upstream threaded an embed through
+    ``channel.send``/``msg.edit``, then a state-colored embed became reachable and
+    the accent-color half of the packet should be revisited.
+    """
+    import inspect
+
+    send_src = inspect.getsource(DiscordAdapter.send)
+    edit_src = inspect.getsource(DiscordAdapter.edit_message)
+
+    for path, src in (("send", send_src), ("edit_message", edit_src)):
+        assert "embed=" not in src, (
+            f"DiscordAdapter.{path} now passes an embed — a state-colored embed may "
+            "be reachable; revisit the notice design"
+        )
+        assert "embeds=" not in src, f"DiscordAdapter.{path} now passes embeds"
+
+    # And the positive half: what we do post is a quote, in message content.
+    assert "content=" in send_src, "the generic send is still content-only"
+    created, _ = notices["discord"]
+    assert created["notice"].startswith(_CARD_PREFIX)
+
+    # No components/buttons either: the generic path never builds a View.
+    for path, src in (("send", send_src), ("edit_message", edit_src)):
+        assert "view=" not in src, f"DiscordAdapter.{path} now attaches a View"
+
+
+def test_terminal_classes_carry_no_link_and_live_ones_carry_exactly_one(
+    notices, outbound_notices
+) -> None:
+    """Live states may hold the one-time URL; terminal states must hold nothing.
+
+    The card changed the shape of every notice, so this re-pins the property the
+    shape must not have broken — including that the capability is still invisible
+    once the card marker is in the string.
+    """
+    adapter = telegram_adapter()
+    created, capability = notices["telegram"]
+    outbound_created, outbound_capability = outbound_notices["telegram"]
+
+    for name in ("received", "expired"):
+        raw = _all_four_classes(created, outbound_created, "telegram")[name]
+        assert "http" not in raw, f"{name}: a terminal state must expose no URL"
+        assert "](" not in raw, f"{name}: and no link at all"
+        assert capability not in raw, f"{name}: and no capability"
+
+    for name, raw, secret in (
+        ("waiting", created["notice"], capability),
+        ("outbound_ready", outbound_created["notice"], outbound_capability),
+    ):
+        formatted = adapter.format_message(raw)
+        shown = visible_text(formatted)
+        assert secret not in shown, (
+            f"{name}: the capability must never be displayed, card or no card"
+        )
+        assert len(_MD_LINK.findall(raw)) == 1, f"{name}: exactly one masked link"
+
+
+def test_no_class_is_ever_rich_eligible(notices, outbound_notices) -> None:
+    """A blockquote must not push any state onto the Bot API 10.1 rich endpoint.
+
+    ``finalize=True`` offers content to the rich edit first, which bypasses
+    ``format_message`` entirely. Blockquotes are not a rich trigger — only tables,
+    GFM task lists, ``<details>`` and block math are — so the card keeps every
+    state on the single, predictable legacy MarkdownV2 path.
+    """
+    adapter = telegram_adapter()
+    created, _ = notices["telegram"]
+    outbound_created, _ = outbound_notices["telegram"]
+
+    for name, raw in _all_four_classes(created, outbound_created, "telegram").items():
+        assert not adapter._needs_rich_rendering(raw), (
+            f"{name}: the card made this rich-eligible, forking the edit path: {raw!r}"
+        )

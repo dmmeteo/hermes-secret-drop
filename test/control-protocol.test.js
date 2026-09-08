@@ -483,7 +483,14 @@ describe('the control protocol contract', () => {
       assert.match(created.notice, /\]\(\S+#[A-Za-z0-9_-]{22}\)/, 'a masked Markdown link');
       assert.ok(!created.notice.includes('<'), 'no HTML tag, and nothing that could become one');
       assert.ok(!created.notice.includes('<t:'), 'no Discord stamp: telegram re-renders nothing');
-      assert.match(created.notice.split('\n').at(-1), /^Expires in \d+ min\.$/, 'compact expiry');
+      assert.match(created.notice.split('\n').at(-1), /^> Expires in \d+ min\.$/, 'compact expiry');
+      // The blockquote card survives the control seam intact, on all three states —
+      // the plugin posts and edits exactly these strings.
+      for (const state of [created.notice, created.notice_received, created.notice_expired]) {
+        for (const line of state.split('\n')) {
+          assert.ok(line.startsWith('> '), `carded over the wire: ${JSON.stringify(line)}`);
+        }
+      }
     });
 
     it('renders `plain` too, so an unverified platform is still served', async () => {

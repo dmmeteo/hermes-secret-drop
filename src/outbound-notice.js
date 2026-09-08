@@ -14,6 +14,21 @@
 // string, Telegram posts MarkdownV2, and an HTML tag would be escaped and *displayed*
 // — capability and all (review H1).
 //
+// The verified platforms get the same `> ` blockquote card as the inbound states, so
+// "Hermes is handing you a secret" reads as one visually distinct block rather than
+// four loose lines — see src/notice.js for why a blockquote is the one rich construct
+// reachable here and why a Discord embed is not. Two shape constraints, both verified
+// against the real adapters rather than assumed:
+//
+//   - Every line carries the prefix. A bare `>` separator line does NOT work: the
+//     MarkdownV2 blockquote rule needs `> ` plus content, so a lone `>` escapes to a
+//     literal `\>` *and* splits the card into two blockquotes. The lines are therefore
+//     contiguous, with no blank line inside the card. `plain` keeps its blank line,
+//     having no card to break.
+//   - The access code stays a backticked span *inside* the quote; placeholder
+//     protection runs before blockquote conversion, so the code span survives intact
+//     and stays tappable-to-copy.
+//
 // NOTHING MODEL-SUPPLIED REACHES THIS TEXT, and that is the load-bearing rule of the
 // module rather than an accident of what it happens to render. The payload's `title`
 // and its field labels are strings a model composed, and this message is Markdown
@@ -40,11 +55,10 @@ function relativeMinutes(expiresAt) {
 const RENDERERS = Object.assign(Object.create(null), {
   discord({ dropId, url, code, expiresAt, fieldCount }) {
     return [
-      '🔑 **Private drop from Hermes**',
-      `[Open private drop](${url})`,
-      `**Access code:** \`${code}\``,
-      '',
-      `Expires <t:${Math.floor(expiresAt / 1000)}:R>.`,
+      '> 🔑 **Private drop from Hermes**',
+      `> [Open private drop](${url})`,
+      `> **Access code:** \`${code}\``,
+      `> Expires <t:${Math.floor(expiresAt / 1000)}:R>.`,
     ].join('\n');
   },
 
@@ -52,11 +66,10 @@ const RENDERERS = Object.assign(Object.create(null), {
   // relative stamp, so a `<t:UNIX:R>` would show up literally.
   telegram({ dropId, url, code, expiresAt, fieldCount }) {
     return [
-      '🔑 **Private drop from Hermes**',
-      `[Open private drop](${url})`,
-      `**Access code:** \`${code}\``,
-      '',
-      `Expires in ${relativeMinutes(expiresAt)}.`,
+      '> 🔑 **Private drop from Hermes**',
+      `> [Open private drop](${url})`,
+      `> **Access code:** \`${code}\``,
+      `> Expires in ${relativeMinutes(expiresAt)}.`,
     ].join('\n');
   },
 

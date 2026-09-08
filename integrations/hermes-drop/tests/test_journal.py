@@ -76,8 +76,8 @@ def _entry(journal, origin, drop_id="AAAAAAAAAAAAAAAAAAAAAA", **kw):
         ttl_seconds=kw.pop("ttl_seconds", 1800),
         purpose=kw.pop("purpose", "deploy token"),
         session_key=kw.pop("session_key", "sess-1"),
-        notice_received=kw.pop("notice_received", "✓ **Private input received**"),
-        notice_expired=kw.pop("notice_expired", "✕ **Private input link expired**"),
+        notice_received=kw.pop("notice_received", "> ✓ **Private input received**"),
+        notice_expired=kw.pop("notice_expired", "> ✕ **Private input link expired**"),
         **kw,
     )
 

@@ -88,8 +88,8 @@ def _waiting(journal, plugin, source, adapter, runner, *, drop_id="A" * 22, expi
         ttl_seconds=1800,
         purpose="deploy token",
         session_key="s",
-        notice_received="✓ **Private input received**",
-        notice_expired="✕ **Private input link expired**",
+        notice_received="> ✓ **Private input received**",
+        notice_expired="> ✕ **Private input link expired**",
     )
 
 
@@ -341,7 +341,7 @@ async def test_a_waiting_entry_whose_broker_record_is_gone_expires(
     assert summary["expired"] == [entry["drop_id"]]
     stored = journal.get(entry["drop_id"])
     assert stored["state"] == "expired"
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
     assert adapter.edited[0].message_id == "msg-AAAA"
     assert stored["announced_at"] is not None
     assert len(deliver.calls) == 1
@@ -379,7 +379,7 @@ async def test_a_waiting_entry_already_submitted_becomes_received(
 
     assert summary["received"] == [entry["drop_id"]]
     assert journal.get(entry["drop_id"])["state"] == "received"
-    assert [e.content for e in adapter.edited] == ["✓ **Private input received**"]
+    assert [e.content for e in adapter.edited] == ["> ✓ **Private input received**"]
 
 
 async def test_an_entry_past_its_deadline_expires_without_a_broker_round_trip(

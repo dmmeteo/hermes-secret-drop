@@ -181,10 +181,10 @@ try {
   check(
     'the waiting state is friendly, masked, and uses a Discord relative timestamp',
     Boolean(secondUrl) &&
-      notice.includes('🔒 **Private input requested**') &&
+      notice.includes('> 🔒 **Private input requested**') &&
       !notice.includes(`drop:${secondId}`) &&
       new RegExp(`\\]\\(${secondUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`).test(notice) &&
-      /^Expires <t:\d{10}:R>\.$/m.test(notice) &&
+      /^> Expires <t:\d{10}:R>\.$/m.test(notice) &&
       !/minute|hour/i.test(notice),
   );
 
@@ -248,13 +248,13 @@ try {
   );
   check(
     'the received state is quiet and carries nothing forward',
-    received === '✓ **Private input received**\n' &&
+    received === '> ✓ **Private input received**\n' &&
       !/https?:\/\/|#|<t:/.test(received) &&
       !received.includes(secondId),
   );
   check(
     'the expired state is quiet and carries nothing forward',
-    expired === '✕ **Private input link expired**\n' && !/https?:\/\/|#|<t:/.test(expired),
+    expired === '> ✕ **Private input link expired**\n' && !/https?:\/\/|#|<t:/.test(expired),
   );
   check(
     'no state outside the contract can be rendered',

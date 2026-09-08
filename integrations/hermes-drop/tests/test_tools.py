@@ -89,8 +89,8 @@ class FakeControl:
             "expires_at": int(time.time() * 1000) + (ttl_seconds or 1800) * 1000,
             "ttl_seconds": ttl_seconds or 1800,
             "notice": "🔐 open http://127.0.0.1:8080/#Q2FwYWJpbGl0eVN0cmluZ0FB",
-            "notice_received": "✓ **Private input received**",
-            "notice_expired": "✕ **Private input link expired**",
+            "notice_received": "> ✓ **Private input received**",
+            "notice_expired": "> ✕ **Private input link expired**",
         }
 
     async def await_submission(self, handoff_id, *, wait_ms, socket_path=None, timeout=None):

@@ -274,7 +274,7 @@ def test_a_broker_restart_expires_the_drop_and_its_secret_can_never_be_claimed(
 
     # (a) the visible waiting message became the expired notice, in place.
     stored = journal.get(drop_id)
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
     assert adapter.edited[0].content == stored["notice_expired"]
     assert adapter.edited[0].message_id == stored["message_id"]
     assert adapter.edited[0].chat_id == source.chat_id
@@ -323,7 +323,7 @@ def test_a_broker_restart_expires_the_drop_and_its_secret_can_never_be_claimed(
     repeat = on_loop(reconciler._reconcile_for_runner(runner))
     assert repeat["expired"] == [] and repeat["announced"] == [], repeat
     assert repeat["failed"] == [], repeat
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
     assert len(wakes) == 1, "a repeated pass announced twice"
     assert journal.get(drop_id) == stored, "a repeated pass rewrote the entry"
 

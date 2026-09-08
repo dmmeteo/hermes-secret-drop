@@ -84,8 +84,17 @@ registers no slash command and requires no Hermes core patch.
   received, expired. The received and expired states carry no URL, capability or
   id. No per-minute edits: the countdown is a platform-rendered relative
   timestamp.
+- **A platform-native card, so state reads at a glance.** Every notice on a
+  verified platform is a blockquote card: Discord and Telegram each draw it with
+  their own native quote rendering, and the card is preserved by the lifecycle
+  edit rather than collapsing into loose prose. Four classes are distinguishable
+  by their leading glyph — 🔒 requested, ✓ received, ✕ expired, 🔑 outbound drop.
+  Discord accent colours are *not* used: they exist only on embeds, and a plugin
+  cannot attach one through the supported adapter interface on either the send or
+  the edit path.
 - **Discord and Telegram.** An unsupported platform is refused by name, never
-  degraded to a plain notice and never redirected.
+  degraded to a plain notice and never redirected. `plain` — used by the admin
+  CLI and the Claude Code client, never in chat — stays markup-free and uncarded.
 - **One reveal, and the page says so.** An outbound drop opens once: after a
   successful reveal the payload is destroyed and the link is spent. The page explains
   what it is, counts down its own expiry, and states plainly that it cannot be opened
@@ -644,7 +653,7 @@ src/broker.js                   in-memory state, single-use gates, HPKE open
 src/public-server.js            page, assets, /api/metadata, /api/submit, headers
 src/control-server.js           0600 Unix socket, newline-delimited JSON admin path
 src/hpke-suite.js               suite, code points, info construction (shared with the browser)
-src/notice.js                   the one chat message and its three fixed states
+src/notice.js                   the one chat message, its three fixed states and its card
 src/client/                     browser: metadata fetch, seal, submit, countdown
 src/public/                     index.html, app.css (assets/app.js is generated)
 test/                           broker seams, HPKE vectors, page wiring, wake contract

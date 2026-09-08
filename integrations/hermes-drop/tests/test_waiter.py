@@ -75,8 +75,8 @@ def _waiting(journal, origin, *, drop_id="A" * 22, expires_in_ms=600_000, purpos
         ttl_seconds=1800,
         purpose=purpose,
         session_key="s",
-        notice_received="✓ **Private input received**",
-        notice_expired="✕ **Private input link expired**",
+        notice_received="> ✓ **Private input received**",
+        notice_expired="> ✕ **Private input link expired**",
     )
 
 
@@ -136,7 +136,7 @@ async def test_normal_submit_edits_journals_and_announces_once(
     assert result["state"] == "received"
     stored = journal.get(entry["drop_id"])
     assert stored["state"] == "received"
-    assert [e.content for e in adapter.edited] == ["✓ **Private input received**"]
+    assert [e.content for e in adapter.edited] == ["> ✓ **Private input received**"]
     assert len(deliver.calls) == 1
     # The payload reaches the model only through claim_private_input (§3.2).
     assert control.claim_calls == []
@@ -157,7 +157,7 @@ async def test_expiry_edits_journals_announces_and_never_claims(
 
     assert result["state"] == "expired"
     assert journal.get(entry["drop_id"])["state"] == "expired"
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
     assert control.claim_calls == [], "expiry must never attempt a claim"
     assert "expired" in deliver.calls[0]["text"]
 
@@ -181,7 +181,7 @@ async def test_a_transport_failure_never_claims_on_a_guess(plugin, journal, lane
     assert result["state"] == "transport_failed"
     assert journal.get(entry["drop_id"])["state"] == "transport_failed"
     # The link must stop advertising itself either way.
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
     assert control.claim_calls == []
     assert "did not complete" in deliver.calls[0]["text"]
     assert "do not claim" in deliver.calls[0]["text"]

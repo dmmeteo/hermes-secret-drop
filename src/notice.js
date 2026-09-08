@@ -30,6 +30,33 @@
 //   - Discord's `format_message` is a table-to-bullets pass and otherwise a
 //     passthrough (`plugins/platforms/discord/adapter.py:5197-5205`).
 //
+// EVERY VERIFIED-PLATFORM STATE IS A BLOCKQUOTE CARD — a `> ` prefix on every
+// line — and that is the whole of "native rendering" here. It is the one rich
+// construct both verified adapters render *natively* through the interface the
+// plugin actually has:
+//
+//   - Telegram: `format_message` step 9 turns a leading `>` into a native
+//     MarkdownV2 blockquote (`telegram/adapter.py:4959-4966`), and both paths the
+//     messenger uses carry it — `send()` posts `parse_mode=MARKDOWN_V2`, and
+//     `edit_message(..., finalize=True)` re-runs `format_message` before editing
+//     (`:3491`). So the card survives the lifecycle edit, not just the send.
+//     The *expandable* form (`**>` … `||`) is deliberately NOT used: step 5's
+//     bold regex runs before step 9 and eats the `**` prefix, and the `||`
+//     terminator only closes on a single line — the result is corrupt markup.
+//   - Discord renders `>` as a blockquote client-side, and its `format_message`
+//     returns these strings byte-identical.
+//
+// A DISCORD EMBED IS NOT REACHABLE FROM A PLUGIN, which is why the accent-colour
+// design this shape replaces was not built. `DiscordAdapter.send` calls
+// `channel.send(content=…)` and `edit_message` calls `msg.edit(content=…)`; the
+// adapter contract types the payload as `content: str`
+// (`gateway/platforms/base.py:2399,:2412`) and Discord reads only `thread_id`
+// and `notify` out of `metadata`. The adapter's own embeds live in private
+// fixed-shape prompt builders that all attach a `discord.ui.View` and have no
+// embed-carrying *edit* counterpart, so an embed could not survive a state
+// transition even if one could be sent. Accent colour on Discord exists only on
+// embeds, so the state signal here is the glyph and the label instead.
+//
 // The renderer × real-`format_message` seam is pinned by
 // integrations/hermes-drop/tests/test_notice_adapter_seam.py, which formats a
 // notice minted by this module through both real adapters and asserts the
@@ -54,16 +81,23 @@
 // The received and expired states are deliberately bare: no URL, no capability,
 // no timestamp, not even the handoff id — by then there is nothing left to look
 // up, and a quiet line is the whole point. Routing stays in the journal rather
-// than exposing transport metadata in the user-facing notice.
+// than exposing transport metadata in the user-facing notice. They keep the `> `
+// card so the lifecycle edit *replaces* the waiting card rather than collapsing
+// it into loose prose, and they stay platform-independent constants (zero
+// arguments, byte-identical everywhere) because the journal caches both strings
+// at create time so a waiter that outlives a gateway restart can edit without a
+// broker round trip (`drop/journal.py:295-299`). That is also why `plain`
+// receives the same two strings: a per-platform quiet state would have to take
+// an argument, and the export surface is pinned to three zero-argument states.
 
 /** Whichever the wake reports, this is the only content that replaces the link. */
 export function receivedNotice() {
-  return '✓ **Private input received**';
+  return '> ✓ **Private input received**';
 }
 
 /** Any non-zero `await` exit: the link must stop advertising itself. */
 export function expiredNotice() {
-  return '✕ **Private input link expired**';
+  return '> ✕ **Private input link expired**';
 }
 
 /** "12 min" — a compact snapshot for clients without relative timestamps. */
@@ -78,9 +112,9 @@ function relativeMinutes(expiresAt) {
 const RENDERERS = Object.assign(Object.create(null), {
   discord({ handoffId, url, expiresAt }) {
     return [
-      `🔒 **Private input requested** — [open the secure form](${url}) and paste it there, ` +
+      `> 🔒 **Private input requested** — [open the secure form](${url}) and paste it there, ` +
         'not in this channel.',
-      `Expires <t:${Math.floor(expiresAt / 1000)}:R>.`,
+      `> Expires <t:${Math.floor(expiresAt / 1000)}:R>.`,
     ].join('\n');
   },
 
@@ -89,9 +123,9 @@ const RENDERERS = Object.assign(Object.create(null), {
   // client-rendered relative stamp and a `<t:UNIX:R>` would show up literally.
   telegram({ handoffId, url, expiresAt }) {
     return [
-      `🔒 **Private input requested** — [open the secure form](${url}) and paste it there, ` +
+      `> 🔒 **Private input requested** — [open the secure form](${url}) and paste it there, ` +
         'not in this chat.',
-      `Expires in ${relativeMinutes(expiresAt)}.`,
+      `> Expires in ${relativeMinutes(expiresAt)}.`,
     ].join('\n');
   },
 

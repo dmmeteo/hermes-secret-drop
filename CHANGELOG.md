@@ -173,6 +173,26 @@ and reads none of them, and behaves exactly as it did before.
 
 ### Changed
 
+- **Drop notices render as a platform-native card.** Every notice on a verified
+  platform — the three inbound states and the outbound drop — is now a blockquote
+  card, drawn by each platform's own native quote rendering: Telegram converts the
+  `> ` prefix into a real MarkdownV2 blockquote (on the `finalize=True` edit path
+  as well as the send, so the card survives a lifecycle transition) and Discord
+  renders it client-side, returning the string byte-identical. The four
+  user-visible classes stay distinguishable by their existing glyphs — 🔒 requested,
+  ✓ received, ✕ expired, 🔑 outbound drop. Live states still carry the one-time link
+  as a masked Markdown link and terminal states still carry no URL, capability or
+  id. `plain` is unchanged and uncarded. No new platform, no dependency, no Hermes
+  core patch, and the notice still travels as ordinary message `content` — never an
+  SDK object and never through a `metadata` key.
+
+  Discord accent colours are deliberately **not** part of this: an accent colour
+  exists only on an embed, and stock Hermes exposes no way for a plugin to attach
+  one — `DiscordAdapter.send` posts `channel.send(content=…)` and its
+  `edit_message` posts `msg.edit(content=…)`, so there is no embed on either the
+  send or the edit path. A canary test reads the real adapter's source and fails if
+  that ever changes.
+
 - **A claim that could not be recorded no longer discards the secret.** The broker
   destroys its copy as it answers, so `claimed_at` is necessarily written after
   the plugin holds the only remaining copy. An `OSError` from that write — a full

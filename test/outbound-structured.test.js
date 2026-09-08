@@ -288,9 +288,28 @@ describe('structured outbound drops: the notice that carries the link and the co
       // The deadline, in the form the platform can actually render.
       if (platform === 'discord') assert.match(notice, /<t:\d+:R>/);
       else assert.match(notice, /Expires in \d+ min\./);
+      // `plain` has no card; the verified platforms carry it on every line.
+      const carded = platform !== 'plain';
+      const prefix = carded ? '> ' : '';
       assert.match(notice.split('\n').at(-1),
-        platform === 'discord' ? /^Expires <t:\d+:R>\.$/ : /^Expires in \d+ min\.$/,
+        platform === 'discord'
+          ? new RegExp(`^${prefix}Expires <t:\\d+:R>\\.$`)
+          : new RegExp(`^${prefix}Expires in \\d+ min\\.$`),
         `${platform}: the second part is only one compact expiry line`);
+
+      // Outbound-ready is the fourth user-visible class, and it is the same
+      // blockquote card as the inbound states so the two directions read alike.
+      for (const line of notice.split('\n')) {
+        if (carded) {
+          assert.ok(line.startsWith('> '), `${platform}: ${JSON.stringify(line)} is not carded`);
+          assert.notEqual(line.trimEnd(), '>', `${platform}: a bare > would split the card`);
+        } else {
+          assert.ok(!line.startsWith('> '), `${platform}: must not be carded`);
+        }
+      }
+      if (carded) {
+        assert.ok(notice.startsWith('> 🔑 '), `${platform}: the key glyph opens the card`);
+      }
     }
   });
 

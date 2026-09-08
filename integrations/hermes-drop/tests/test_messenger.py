@@ -446,13 +446,19 @@ def test_the_plugin_touches_os_environ_only_for_its_own_configuration(plugin) ->
 # calls ``edit_message_text(text=content)`` with **no** ``parse_mode``
 # (``plugins/platforms/telegram/adapter.py:4755-4761``); only the
 # ``finalize=True`` branch runs ``format_message`` + ``MARKDOWN_V2``
-# (``:4765-4771``). So ``✓ **Private input received**`` landed with its asterisks
+# (``:4765-4771``). So ``> ✓ **Private input received**`` landed with its asterisks
 # showing. Discord was unaffected — its ``edit_message`` formats regardless.
 #
 # It also invalidated the E2E-1 gate as written: the plan asserted the message
-# "reads exactly ``✕ **Private input link expired**``", which is precisely the
+# "reads exactly ``> ✕ **Private input link expired**``", which is precisely the
 # literal string a *broken* render produces, so the gate could not tell correct
 # from incorrect.
+#
+# The card raised the stakes of exactly the same branch. Every verified-platform
+# notice is now a ``> `` blockquote card, and Telegram only converts that into a
+# native blockquote on the ``finalize=True`` path — the ``finalize=False`` branch
+# would display a literal ``>`` on every line, so the same one-character default
+# that used to leak ``**`` would now also break the card the packet asked for.
 #
 # ``finalize`` is safe to pass everywhere, unlike ``metadata``: it is on the ABC
 # (``gateway/platforms/base.py:3533-3540``) and keyword-only on all nine adapters.
@@ -466,7 +472,7 @@ async def test_edit_finalizes_so_telegram_applies_a_parse_mode(origin_for, messe
     origin, adapter, _ = origin_for(
         Platform.TELEGRAM, chat_id="tg-1", chat_type="dm", user_id="u"
     )
-    await messenger.edit(origin, "msg-1", "✓ **Private input received**")
+    await messenger.edit(origin, "msg-1", "> ✓ **Private input received**")
 
     assert adapter.edited[0].finalize is True, (
         "without finalize=True Telegram edits with no parse_mode and the ** shows"
@@ -479,7 +485,7 @@ async def test_update_status_finalizes_too(origin_for, messenger) -> None:
     origin, adapter, _ = origin_for(
         Platform.TELEGRAM, chat_id="tg-1", chat_type="dm", user_id="u"
     )
-    result = await messenger.update_status(origin, "msg-1", "✕ **Private input link expired**")
+    result = await messenger.update_status(origin, "msg-1", "> ✕ **Private input link expired**")
 
     assert result["ok"] is True
     assert [e.finalize for e in adapter.edited] == [True]
@@ -538,3 +544,83 @@ def test_messenger_source_passes_finalize_on_the_edit_call(plugin) -> None:
     edit_body = src.split("async def edit", 1)[1].split("async def", 1)[0]
     assert "finalize=True" in edit_body
     assert "metadata=" not in edit_body
+
+
+# ── the native card crosses the messenger unchanged ────────────────────────
+#
+# The messenger is the one place a notice could be mangled between the broker
+# that renders it and the adapter that formats it. It must be a pure conduit:
+# whatever the broker carded, the adapter receives byte-for-byte, on the send
+# path and on the edit path alike. The rendering itself is asserted against the
+# real adapters in ``test_notice_adapter_seam.py``; what is asserted here is that
+# nothing on the way there rewrites, strips, trims or re-wraps the card.
+
+_CARDED_WAITING = (
+    "> \N{LOCK} **Private input requested** — [open the secure form]"
+    "(https://drop.example.test/#0123456789abcdefghij_-) and paste it there, not in this chat.\n"
+    "> Expires in 12 min."
+)
+_CARDED_RECEIVED = "> \N{HEAVY CHECK MARK} **Private input received**"
+
+
+@pytest.mark.asyncio
+async def test_the_card_reaches_the_adapter_byte_for_byte_on_send(
+    origin_for, messenger
+) -> None:
+    """A multi-line blockquote card must arrive exactly as rendered."""
+    origin, adapter, _ = origin_for(
+        Platform.TELEGRAM, chat_id="tg-1", chat_type="dm", user_id="u"
+    )
+    await messenger.send(origin, _CARDED_WAITING)
+
+    assert [m.content for m in adapter.sent] == [_CARDED_WAITING]
+    # The specific failure worth naming: a conduit that "helpfully" normalises
+    # whitespace or joins lines would silently destroy the quote block.
+    assert adapter.sent[0].content.count("\n") == 1, "the card kept both of its lines"
+    for line in adapter.sent[0].content.splitlines():
+        assert line.startswith("> "), f"card prefix lost in transit: {line!r}"
+
+
+@pytest.mark.asyncio
+async def test_the_card_reaches_the_adapter_byte_for_byte_on_edit(
+    origin_for, messenger
+) -> None:
+    """And on the edit path, which is what the lifecycle transition uses."""
+    origin, adapter, _ = origin_for(
+        Platform.TELEGRAM, chat_id="tg-1", chat_type="dm", user_id="u"
+    )
+    result = await messenger.update_status(origin, "msg-1", _CARDED_RECEIVED)
+
+    assert result["ok"] is True
+    assert [e.content for e in adapter.edited] == [_CARDED_RECEIVED]
+    assert adapter.edited[0].content.startswith("> "), "the edited card still opens a quote"
+    # The card renders natively only on the finalizing branch — re-pinned here
+    # alongside the content so the two cannot drift apart.
+    assert adapter.edited[0].finalize is True
+
+
+@pytest.mark.asyncio
+async def test_the_card_is_posted_as_message_content_not_a_rich_payload(
+    origin_for, messenger
+) -> None:
+    """No SDK object, no embed, no ``metadata`` smuggling — just the string.
+
+    The packet forbade passing platform payloads through undocumented metadata
+    fields, and the adapter interface gives no supported way to do it anyway.
+    This asserts the notice travels as ordinary message *content*, so what
+    Discord draws is a Markdown blockquote rather than an embed, and what
+    Telegram draws is a MarkdownV2 blockquote.
+    """
+    origin, adapter, _ = origin_for(
+        Platform.DISCORD, chat_id="dc-1", chat_type="channel", user_id="u"
+    )
+    await messenger.send(origin, _CARDED_WAITING)
+
+    sent = adapter.sent[0]
+    assert isinstance(sent.content, str), "the payload is a string, not an SDK object"
+    assert sent.content == _CARDED_WAITING
+    # Whatever routing metadata the messenger builds, none of it is a payload.
+    for forbidden in ("embed", "embeds", "view", "components", "parse_mode", "reply_markup"):
+        assert forbidden not in (sent.metadata or {}), (
+            f"{forbidden} must never be smuggled through metadata"
+        )

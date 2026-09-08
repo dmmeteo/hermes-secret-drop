@@ -94,8 +94,8 @@ class FakeControl:
             # whether the claim boundary is lossless from *this*, not from hope.
             "protocol_version": 2,
             "notice": "🔐 open the secure form http://127.0.0.1:8080/#Q2FwYWJpbGl0eVN0cmluZ0FB",
-            "notice_received": "✓ **Private input received**",
-            "notice_expired": "✕ **Private input link expired**",
+            "notice_received": "> ✓ **Private input received**",
+            "notice_expired": "> ✕ **Private input link expired**",
         }
 
     async def await_submission(self, handoff_id, *, wait_ms, socket_path=None, timeout=None):
@@ -123,8 +123,8 @@ def _created(**overrides):
         "max_plaintext_bytes": 8192,
         "protocol_version": 2,
         "notice": "🔐 open the secure form",
-        "notice_received": "✓ **Private input received**",
-        "notice_expired": "✕ **Private input link expired**",
+        "notice_received": "> ✓ **Private input received**",
+        "notice_expired": "> ✕ **Private input link expired**",
     }
     created.update(overrides)
     for key, value in list(created.items()):
@@ -265,7 +265,7 @@ async def test_a_journal_refusal_retires_the_link_it_cannot_track(
     result = await _service(plugin, journal, FakeControl()).create(origin, ttl_seconds=300)
 
     assert result["error"] == "journal_failed"
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
 
 
 async def test_a_telegram_topic_lane_sends_with_thread_metadata(
@@ -434,7 +434,7 @@ async def test_the_full_loop_runs_against_the_real_broker(
 
     result = await asyncio.wait_for(parked, timeout=30)
     assert result["state"] == "received", result
-    assert [e.content for e in adapter.edited] == ["✓ **Private input received**"]
+    assert [e.content for e in adapter.edited] == ["> ✓ **Private input received**"]
     assert len(deliver_calls) == 1
 
     claimed = await service.claim(origin, receipt["drop_id"])
@@ -537,7 +537,7 @@ async def test_a_real_expiry_wakes_the_parked_waiter_without_polling(
 
     assert result["state"] == "expired"
     assert 1.0 < elapsed < 15.0, f"the park did not track the real deadline ({elapsed:.1f}s)"
-    assert [e.content for e in adapter.edited] == ["✕ **Private input link expired**"]
+    assert [e.content for e in adapter.edited] == ["> ✕ **Private input link expired**"]
 
 
 async def _noop_deliver(adapter, *, text, source=None, session_id=""):

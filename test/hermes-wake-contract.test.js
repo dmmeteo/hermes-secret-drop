@@ -116,11 +116,32 @@ describe('the Hermes integration contract', () => {
       ]);
     });
 
+    // A masked Markdown link is the shape *because* a plugin cannot build a Discord
+    // embed: `DiscordAdapter.send` posts `channel.send(content=…)` and its
+    // `edit_message` posts `msg.edit(content=…)`, so there is no embed on either the
+    // send or the edit path. The plugin-side guard for that lives in
+    // integrations/hermes-drop/tests/test_notice_adapter_seam.py, which can import the
+    // real adapter and assert it.
     it('publishes the link as a masked Markdown link, so Discord makes no embed', () => {
       const notice = waitingNotice({ handoffId, url, expiresAt });
       assert.match(notice, /\[[^\]]+\]\(https:\/\/drop\.example\.test\/#[^)]+\)/, 'masked link');
       assert.ok(notice.includes(url), 'and it is the real url inside it');
       assert.ok(!notice.includes(`drop:${handoffId}`), 'transport metadata stays out of the UI');
+    });
+
+    // The one message keeps one shape across the whole lifecycle: if the waiting
+    // state were a card and a terminal state were not, the edit would visibly
+    // collapse the card instead of replacing it.
+    it('renders all three states as the same blockquote card shape', () => {
+      for (const [state, notice] of [
+        ['waiting', waitingNotice({ handoffId, url, expiresAt })],
+        ['received', receivedNotice()],
+        ['expired', expiredNotice()],
+      ]) {
+        for (const line of notice.split('\n')) {
+          assert.ok(line.startsWith('> '), `${state}: ${JSON.stringify(line)} is not carded`);
+        }
+      }
     });
 
     it('delegates the countdown to Discord with a relative timestamp', () => {
@@ -136,7 +157,7 @@ describe('the Hermes integration contract', () => {
 
     it('reduces to a quiet received state with nothing left in it', () => {
       const notice = receivedNotice();
-      assert.equal(notice, '✓ **Private input received**');
+      assert.equal(notice, '> ✓ **Private input received**');
       assert.ok(!/https?:\/\//.test(notice), 'no url');
       assert.ok(!notice.includes('#'), 'no fragment, where the capability rides');
       assert.ok(!notice.includes('<t:'), 'no timestamp');
@@ -145,7 +166,7 @@ describe('the Hermes integration contract', () => {
 
     it('reduces to a quiet expired state with nothing left in it', () => {
       const notice = expiredNotice();
-      assert.equal(notice, '✕ **Private input link expired**');
+      assert.equal(notice, '> ✕ **Private input link expired**');
       assert.ok(!/https?:\/\//.test(notice));
       assert.ok(!notice.includes('#'));
       assert.ok(!notice.includes('<t:'));
@@ -179,11 +200,11 @@ describe('the Hermes integration contract', () => {
     it('renders the two quiet states so Hermes never has to paraphrase them', async () => {
       const received = await runAdmin(broker.controlSocketPath, ['notice', 'received']);
       assert.equal(received.code, 0);
-      assert.equal(received.stdout, '✓ **Private input received**\n');
+      assert.equal(received.stdout, '> ✓ **Private input received**\n');
 
       const expired = await runAdmin(broker.controlSocketPath, ['notice', 'expired']);
       assert.equal(expired.code, 0);
-      assert.equal(expired.stdout, '✕ **Private input link expired**\n');
+      assert.equal(expired.stdout, '> ✕ **Private input link expired**\n');
     });
 
     it('refuses any state it does not define', async () => {
