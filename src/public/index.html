@@ -12,42 +12,63 @@
 <main id="app" class="quiet-document" data-state="loading">
 
 <section id="form" hidden>
+<!-- Order on this screen is the whole design: WHAT is being asked for and WHY, then
+     the input, then one action. Everything that is not one of those three is either
+     gone or demoted.
+
+     TWO elements are rewritable, and they are the only two. `form-title` is the task
+     heading -- built-in English chrome chosen from the drop's payload kind, replaced
+     outright by a requester's label when one was minted. `request-description` is the
+     single supporting paragraph: the requester's own sentence when there is one, and
+     otherwise one built-in line, never both. Both are written with textContent by
+     src/client/app.js and neither is ever built from a string.
+
+     What a descriptor CANNOT reach is now structural rather than a span boundary: the
+     identity row, the countdown and the "About this drop" disclosure are separate
+     static elements outside both rewritable ones, so no description can restate, move
+     or suppress what the page promises about expiry, one-shot use and the chat. `ttl`
+     is an element the countdown holds a reference to -- rewriting the row around it
+     would destroy it and stop the clock.
+
+     The language rule: every string in this document is English, and so is a
+     requester's `label`. `request-description` is the one place another language may
+     appear, because it is the only place a requester describes their own request.
+     Nothing detects or enforces that -- a detector would refuse copy it misread. -->
+<div class="drop-bar">
+<span class="drop-id">Hermes Drop</span>
+<strong id="ttl" class="drop-clock" role="timer" aria-live="off" aria-label="Time remaining">&ndash;:&ndash;&ndash;</strong>
+</div>
 <div class="copy">
-<p class="eyebrow">Private drop</p>
-<!-- Three pieces of inbound copy can change, and they are deliberately three
-     elements rather than one, because they do not come from the same place.
-
-     `form-title` and `form-lede-text` are *built-in English chrome*. The page picks
-     between a fixed set of strings based on the drop's payload kind; a requester
-     never supplies them, and `form-title` falls back to a label only when one was
-     minted. `request-description` is the only element a requester's own words reach.
-
-     What stays out of all three is load-bearing: the expiry countdown (`ttl`) and the
-     "nothing you enter will be posted to chat" sentence live in `form-lede` OUTSIDE
-     the rewritable span, so no descriptor can restate, move or suppress what the page
-     promises about expiry and secrecy. `ttl` is an element the countdown holds a
-     reference to -- rewriting the whole paragraph would destroy it and stop the clock.
-
-     Every one of them is written with textContent by src/client/app.js and is never
-     built from a string. `request-description` stays hidden, and the layout stays
-     exactly as it is today, when no descriptor was minted -- which is every drop that
-     predates this. -->
-<h1 id="form-title">Send privately to Hermes</h1>
-<p id="form-lede"><span id="form-lede-text">Send private text or files for your current task.</span> This page closes in <strong id="ttl" role="timer">–:––</strong>, and nothing you enter will be posted to chat.</p>
+<h1 id="form-title">Send privately</h1>
 <p id="request-description" class="request-note" hidden></p>
 </div>
-<textarea id="secret" aria-label="Private details" placeholder="Password, token, credentials, or a small config…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter"></textarea>
-<section id="file-panel" class="file-panel" aria-labelledby="files-label">
-<p id="files-label"><strong id="files-heading">Add files</strong> <span class="meta" id="files-limits">Up to 5 files, 42 MiB total</span></p>
-<label id="drop-zone" class="drop-zone" for="files">Choose files or drag them here</label>
+<label class="sr-only" for="secret">Private details</label>
+<textarea id="secret" placeholder="Paste here" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter"></textarea>
+<!-- A real button, not a <label for>. A label is not keyboard focusable, so the only
+     way to reach the picker without a pointer was the hidden input itself, which is
+     display:none and therefore unreachable too. -->
+<section id="file-panel" class="file-panel" aria-labelledby="drop-zone">
+<button id="drop-zone" class="drop-zone" type="button" aria-describedby="files-limits">Choose files or drag them here</button>
 <input id="files" type="file" multiple hidden>
+<p id="files-limits" class="meta">Up to 5 files, 42 MiB total</p>
 <ul id="file-list" class="file-list" aria-live="polite"></ul>
-<p id="file-total" class="meta">0 files · 0 B</p>
+<!-- Starts hidden and stays hidden until there is something to count. A tally reading
+     zero is not information, it is a row to read past. -->
+<p id="file-total" class="meta" hidden></p>
 </section>
 <div class="actions">
-<span class="meta privacy-note" id="note">One secure send · no edits</span>
-<button class="primary" id="send" type="button">Send to Hermes</button>
+<!-- Ships empty. This line is for problems the sender can act on -- a short file
+     count, an oversized value -- and never for reassurance. -->
+<p class="meta" id="note" role="status" aria-live="polite"></p>
+<button class="primary" id="send" type="button">Send</button>
 </div>
+<!-- Demoted out of the primary hierarchy, not deleted. These are the only claims the
+     page makes about itself and they are true, so they stay -- collapsed, in the
+     page's own voice, below the action rather than above the input. -->
+<details class="about">
+<summary>About this drop</summary>
+<p>What you enter here is not posted to the chat. You can send once and there are no edits afterwards, and the page closes on its own when the clock runs out.</p>
+</details>
 </section>
 
 <!-- The outbound direction (docs/OUTBOUND_SECRET_DROP_MVP.md): Hermes has something

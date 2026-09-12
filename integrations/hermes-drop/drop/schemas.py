@@ -87,8 +87,12 @@ REQUEST_PRIVATE_INPUT: Dict[str, Any] = {
                     "SUPPLY, e.g. 'Upload the two config files for the staging "
                     "deployment.' or 'Paste the API token for the staging deployment. "
                     "Do not include other credentials.' Non-secret, plain text, one "
-                    "line, at most 300 characters. Write it in the language of the "
-                    "conversation. Never put a secret, a URL or markup in it. Do NOT "
+                    "line, at most 300 characters. This is the ONE part of the form "
+                    "whose language is yours to choose: write it in Ukrainian or in "
+                    "English, whichever the person you are asking will read more "
+                    "easily. Every other string on the page -- headings, labels, the "
+                    "button, counts and errors -- is English, and so is `label`. "
+                    "Never put a secret, a URL or markup in it. Do NOT "
                     "make promises about what happens to the value afterwards -- no "
                     "claims about storage, retention, deletion, who sees it or how it "
                     "is protected. You do not know what the eventual consumer does "
@@ -100,7 +104,11 @@ REQUEST_PRIVATE_INPUT: Dict[str, Any] = {
                 "type": "string",
                 "description": (
                     "Optional short heading for the form, e.g. 'Staging deployment "
-                    "config'. Non-secret, plain text, one line, at most 80 characters."
+                    "config'. Non-secret, plain text, one line, at most 80 characters. "
+                    "Write it in ENGLISH: it becomes the page's main heading, sitting "
+                    "directly against English chrome, and a heading in another "
+                    "language reads as a mistake there. The `description` below it is "
+                    "where another language belongs."
                 ),
             },
         },

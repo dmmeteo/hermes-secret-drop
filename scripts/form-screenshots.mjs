@@ -278,7 +278,20 @@ async function main() {
   await cdp.ready;
 
   try {
-    // ── the four shapes the form can take ────────────────────────────────────
+    // ── the shapes the form can take ─────────────────────────────────────────
+    //
+    // LANGUAGE. Every string the page draws for itself is English, and so is a
+    // requester's `label`, because it becomes the main heading and sits directly
+    // against that English chrome. `description` is the single element whose language
+    // is the requester's choice. The primary pair below is therefore an ENGLISH form
+    // carrying a UKRAINIAN description -- the mixed case, which is the one that can
+    // actually look wrong -- and the `-en` pair is the same request in English as the
+    // control. Nothing in the product detects or enforces this; it is guidance on the
+    // model-facing surfaces and evidence here.
+    const UK_TOKEN_DESCRIPTION = 'Вставте API-токен для staging-розгортання. Не додавайте інших облікових даних.';
+    const UK_FILES_DESCRIPTION = 'Завантажте два файли конфігурації для staging-розгортання.';
+    const EN_TOKEN_DESCRIPTION = 'Paste the API token for the staging deployment. Do not include other credentials.';
+    const EN_FILES_DESCRIPTION = 'Upload the two configuration files for the staging deployment.';
     const shapes = [
       {
         name: 'universal-legacy',
@@ -292,6 +305,7 @@ async function main() {
           payload_kind: 'text',
           ttl_seconds: 900,
           form: {
+            // English heading, Ukrainian description: the delivered shape.
             label: 'Staging deploy token',
             // Neutral input instruction on purpose. A requester describes WHAT TO
             // SUPPLY; it must not promise what happens to the value afterwards. A
@@ -299,10 +313,10 @@ async function main() {
             // so copy like "used once and not stored" would be a retention guarantee
             // nothing in this system can keep. What the page can honestly say about
             // its own lifecycle it already says, in its own built-in words.
-            description: 'Paste the API token for the staging deployment. Do not include other credentials.',
+            description: UK_TOKEN_DESCRIPTION,
           },
         },
-        expect: 'textarea only, described',
+        expect: 'textarea only, English chrome, Ukrainian description',
       },
       {
         name: 'files-exactly-two',
@@ -313,11 +327,50 @@ async function main() {
           max_files: 5,
           form: {
             label: 'Staging deployment config',
-            description: 'Upload the two configuration files for the staging deployment.',
+            description: UK_FILES_DESCRIPTION,
             expect_files: 2,
           },
         },
-        expect: 'picker only, exactly 2 expected',
+        expect: 'picker only, exactly 2 expected, Ukrainian description',
+      },
+      {
+        name: 'text-described-en',
+        request: {
+          op: 'create',
+          payload_kind: 'text',
+          ttl_seconds: 900,
+          form: { label: 'Staging deploy token', description: EN_TOKEN_DESCRIPTION },
+        },
+        expect: 'the same request with an English description',
+      },
+      {
+        name: 'files-exactly-two-en',
+        request: {
+          op: 'create',
+          payload_kind: 'files',
+          ttl_seconds: 900,
+          max_files: 5,
+          form: { label: 'Staging deployment config', description: EN_FILES_DESCRIPTION, expect_files: 2 },
+        },
+        expect: 'the same files request with an English description',
+      },
+      {
+        // Both bounds at once, in a script whose words are longer: 80 code points of
+        // label and 300 of description. This is the wrap and overflow case.
+        name: 'long-ukrainian',
+        request: {
+          op: 'create',
+          payload_kind: 'universal',
+          ttl_seconds: 900,
+          form: {
+            label: 'Конфігурація середовища staging для повторного розгортання сервісу',
+            description:
+              'Вставте значення змінної середовища для staging-розгортання, або прикріпіть файл конфігурації, '
+              + 'якщо значень декілька. Не додавайте жодних інших облікових даних, ключів чи паролів, '
+              + 'які не стосуються цього конкретного розгортання сервісу.',
+          },
+        },
+        expect: 'long label and description wrap without widening the page',
       },
       {
         name: 'hostile-copy',
@@ -364,7 +417,16 @@ async function main() {
             textarea: visible('secret'),
             filePanel: visible('file-panel'),
             filesLimits: byId('files-limits').textContent,
+            dropZone: byId('drop-zone').textContent,
             ttl: byId('ttl').textContent,
+            ttlShown: visible('ttl'),
+            ttlLabel: byId('ttl').getAttribute('aria-label'),
+            // What "quieter" has to mean concretely, checked rather than eyeballed.
+            note: byId('note').textContent,
+            tallyShown: visible('file-total'),
+            aboutOpen: byId('form').querySelector('details.about').open,
+            // The drop zone has to be reachable without a pointer.
+            dropZoneFocusable: byId('drop-zone').tagName === 'BUTTON' && byId('drop-zone').tabIndex >= 0,
             // The hostile cases: did any of it become a node?
             anchors: document.querySelectorAll('#form a').length,
             images: document.querySelectorAll('#form img').length,
@@ -407,6 +469,22 @@ async function main() {
         `no horizontal overflow at 390px: ${shape.name}`,
         phoneOverflow <= 0,
         `overflow=${phoneOverflow}px`,
+      );
+      // The three things the old page put in front of a sender that said nothing.
+      record(
+        `nothing decorative at rest: ${shape.name}`,
+        state.note === '' && state.tallyShown === false && state.aboutOpen === false,
+        `note=${JSON.stringify(state.note)} tally=${state.tallyShown} about-open=${state.aboutOpen}`,
+      );
+      record(
+        `the countdown is visible and labelled: ${shape.name}`,
+        state.ttlShown && /^\d+:\d{2}$/.test(state.ttl) && /^Time remaining: /.test(state.ttlLabel ?? ''),
+        `ttl=${state.ttl} label=${JSON.stringify(state.ttlLabel)}`,
+      );
+      record(
+        `the file chooser is keyboard reachable: ${shape.name}`,
+        state.filePanel === false || state.dropZoneFocusable,
+        `panel=${state.filePanel} focusable=${state.dropZoneFocusable} zone=${JSON.stringify(state.dropZone)}`,
       );
     }
 
@@ -480,7 +558,7 @@ async function main() {
       // after being told the count is short. Re-adding both would be 1 + 2 = 3 and
       // would be refused -- correctly -- by the same gate.
       const tally = await evaluate(cdp, sessionId, setFilesExpression([files[1]]));
-      record('the selection accumulates to the expected count', /^2 of 2 files/.test(tally), tally);
+      record('the selection accumulates to the expected count', /^2 of 2 selected$/.test(tally), tally);
       const outcome = await evaluate(cdp, sessionId, `
         (async () => {
           document.getElementById('send').click();
@@ -518,6 +596,44 @@ async function main() {
     }
 
     // ── the terminal states, for the record ──────────────────────────────────
+    {
+      // The receipt, captured from the page that just reached it.
+      await shoot(cdp, sessionId, 'phone', join(outDir, 'received-phone-dark.png'));
+      await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+    }
+
+    // ── outbound: shared stylesheet, deliberately NOT redesigned ─────────────
+    //
+    // The inbound rules above are scoped to #form and to classes only the composer
+    // uses, but they live in the stylesheet this screen also loads. That intent is
+    // worth a picture rather than an assertion that it was intended.
+    {
+      const payload = JSON.stringify({
+        v: 1,
+        title: 'Staging credentials',
+        fields: [{ label: 'API token', type: 'secret', value: 'not-a-real-token' }],
+      });
+      const created = await control({
+        op: 'create_outbound_drop',
+        ttl_seconds: 900,
+        payload_format: 'structured',
+        plaintext_b64: Buffer.from(payload, 'utf8').toString('base64'),
+      }).catch(() => null);
+      if (created?.ok) {
+        await navigate(cdp, sessionId, `${broker.baseUrl}/#${created.url.split('#')[1]}`);
+        const state = await evaluate(cdp, sessionId, "document.getElementById('app').dataset.state");
+        record('the outbound reveal gate still renders', state === 'reveal', `state=${state}`);
+        for (const theme of THEMES) {
+          await setTheme(cdp, sessionId, theme);
+          await shoot(cdp, sessionId, 'phone', join(outDir, `outbound-reveal-phone-${theme}.png`));
+        }
+        await setTheme(cdp, sessionId, 'dark');
+        await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+      } else {
+        record('the outbound reveal gate still renders', false, `could not mint an outbound drop: ${JSON.stringify(created)}`);
+      }
+    }
+
     {
       const created = await control({ op: 'create', payload_kind: 'universal', ttl_seconds: 900 });
       await control({ op: 'claim', handoff_id: created.handoff_id }).catch(() => {});

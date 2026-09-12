@@ -65,10 +65,20 @@ the user: `mode: text` means they cannot attach the file they meant to send.
 No `mode` is the universal form, which always works — it is the fallback, not
 a failure.
 
-Write `description` in the language of the conversation. It is plain text, one
-line, and the user reads it next to an input they are about to paste a
-credential into, so: no secrets in it, no URLs, no markup, and nothing that
-pressures them. Say what you need and stop.
+**The form is in English; `description` is the one exception.** Every string the
+page draws for itself — the Hermes Drop row, the heading defaults, the input
+label, the button, the file counts, the status line and every error — is
+English, and `label` is English too, because it becomes the main heading and
+sits directly against that chrome. `description` is the only place another
+language belongs: write it in Ukrainian or in English, whichever the person you
+are asking will read more easily. Nothing checks this. There is no language
+detection and no refusal, because a detector would reject legitimate copy it
+misread — it is your call, and the bounds are counted in code points, so a
+Ukrainian sentence gets the same full 300 as an English one.
+
+It is plain text, one line, and the user reads it next to an input they are
+about to paste a credential into, so: no secrets in it, no URLs, no markup, and
+nothing that pressures them. Say what you need and stop.
 
 **Describe the input, not what happens to it.** Say what to supply and, when it
 helps, what to leave out — `Paste the API token for the staging deployment. Do

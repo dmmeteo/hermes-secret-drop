@@ -100,8 +100,9 @@ try {
   check('page loads over the plain request target', page.status === 200);
   check(
     'page is the accepted Variant A form, branded Hermes Drop',
-    html.includes('Send to Hermes') &&
-      html.includes('Send privately to Hermes') &&
+    html.includes('>Send</button>') &&
+      html.includes('<h1 id="form-title">Send privately</h1>') &&
+      html.includes('>Hermes Drop<') &&
       html.includes('<title>Hermes Drop</title>'),
   );
   check('page carries a strict self-only CSP', /default-src 'none'/.test(page.headers.get('content-security-policy') ?? ''));

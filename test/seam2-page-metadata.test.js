@@ -40,8 +40,33 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
     });
 
     it('reuses the accepted Variant A direction', () => {
-      assert.match(html, /Send to Hermes/);
-      assert.match(html, /Private drop/);
+      assert.match(html, /<button class="primary" id="send" type="button">Send<\/button>/);
+      // Identity is a quiet row beside the clock now, not an uppercase eyebrow
+      // competing with the heading under it.
+      assert.match(html, /class="drop-id">Hermes Drop</);
+    });
+
+    it('carries no decorative microcopy the sender has to read past', () => {
+      const form = html.slice(html.indexOf('<section id="form"'), html.indexOf('<section id="reveal"'));
+      assert.ok(!/One secure send/.test(form), 'the slogan row is gone, not restyled');
+      assert.ok(!/0 B/.test(form), 'no byte counter sits at zero before anything is chosen');
+      assert.ok(!/Private drop/.test(form), 'the eyebrow is gone');
+      // The status line ships empty: it exists for problems, not for greetings.
+      assert.match(form, /<p class="meta" id="note"[^>]*><\/p>/);
+      assert.match(form, /id="file-total"[^>]*hidden/, 'and the tally starts hidden');
+      // One paragraph of supporting copy, and it starts empty -- the page fills it
+      // with the requester's description, or with one built-in line, never both.
+      assert.equal((form.match(/<p id="request-description"/g) || []).length, 1);
+    });
+
+    it('states the one-shot and chat promises once, in the page\'s own voice', () => {
+      // Demoted out of the primary hierarchy, not deleted: these are the only
+      // truthful claims the page makes about itself, and they sit in static markup
+      // no descriptor can reach.
+      const about = html.slice(html.indexOf('<details class="about"'), html.indexOf('</details>'));
+      assert.match(about, /<summary>About this drop<\/summary>/);
+      assert.match(about, /not posted to the chat/i);
+      assert.ok(!/id="request-description"/.test(about), 'nothing rewritable lives in it');
     });
 
     it('carries the Hermes Drop user-facing branding', () => {
@@ -50,8 +75,10 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       // replaces it outright when a drop was minted with a label. What is pinned here
       // is the SHIPPED default: the generic wording a drop with no descriptor still
       // gets, which is every drop that predates the descriptor.
-      assert.match(html, /<h1 id="form-title">Send privately to Hermes<\/h1>/, 'public heading');
-      assert.match(html, />Send to Hermes</, 'the send action keeps its wording');
+      assert.match(html, /<h1 id="form-title">Send privately<\/h1>/, 'public heading');
+      // "Hermes" is said once per screen, in the identity row. Repeating it on the
+      // button would be the third time on a phone screen that is trying to be quiet.
+      assert.match(html, />Send</, 'one unambiguous primary action');
       assert.ok(!html.includes('Hermes is ready.'), 'the old heading is gone');
       assert.match(html, /<h1>This link is unavailable<\/h1>/, 'unavailable heading');
       assert.match(html, /Ask Hermes for a new link/, 'unavailable guidance');
@@ -94,7 +121,13 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       // one textarea, one picker, one Send, and no mode switch.
       const form = html.slice(html.indexOf('<section id="form"'), html.indexOf('<section id="reveal"'));
       assert.equal(form.match(/<textarea/g).length, 1);
-      assert.equal(form.match(/<button/g).length, 1, 'one action on the composer');
+      // Two buttons, one action. The second is the file chooser itself -- a real
+      // <button> rather than a <label for>, because a label is not keyboard
+      // focusable and the picker has to be reachable without a pointer. Exactly one
+      // of them is primary, which is the property that actually matters here.
+      assert.equal(form.match(/<button/g).length, 2, 'the send action and the file chooser');
+      assert.equal((form.match(/class="primary"/g) || []).length, 1, 'one primary action');
+      assert.match(form, /<button[^>]+id="drop-zone"/, 'the drop zone is operable from the keyboard');
       assert.equal((form.match(/<input/g) || []).length, 1, 'and one input, the picker');
       assert.doesNotMatch(html, /id="(?:text|files)-mode"/);
       assert.match(form, /id="files"/);
@@ -106,7 +139,7 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       const gate = html.slice(html.indexOf('<section id="reveal"'), html.indexOf('<section id="revealed"'));
       assert.equal(gate.match(/<button/g).length, 1, 'one action on the gate too');
       assert.equal(gate.match(/<input/g).length, 1, 'and one code box');
-      assert.equal((html.match(/<button/g) || []).length, 2, 'two buttons in the whole document');
+      assert.equal((html.match(/<button/g) || []).length, 3, 'send, file chooser, reveal');
     });
 
     it('has one multi-file picker and Send spans the width', async () => {
@@ -132,6 +165,10 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.ok(!/minute/i.test(ttl), 'the copy must not hard-code "10 minutes"');
       assert.ok(!/minute/i.test(html), 'nor anywhere else in the document');
       assert.match(html, /id="ttl"[^>]*role="timer"/, 'the countdown is announced as a timer');
+      // A clock that re-announced itself every second would make the page unusable
+      // with a screen reader. It is labelled for what it is and read on demand.
+      assert.match(html, /id="ttl"[^>]*aria-live="off"/, 'the clock does not announce each tick');
+      assert.match(html, /id="ttl"[^>]*aria-label="Time remaining"/, 'and the digits say what they are');
     });
 
     it('keeps textarea contents out of form restore, spellcheck and autocorrect', () => {

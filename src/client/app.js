@@ -25,9 +25,7 @@ const dropZone = $('drop-zone');
 const fileList = $('file-list');
 const fileTotal = $('file-total');
 const formTitle = $('form-title');
-const formLedeText = $('form-lede-text');
 const requestDescription = $('request-description');
-const filesHeading = $('files-heading');
 const filesLimits = $('files-limits');
 let selectedFiles = [];
 /**
@@ -37,6 +35,16 @@ let selectedFiles = [];
  * variable does is a convenience for the sender.
  */
 let expectFiles = null;
+/**
+ * The status line under the composer. It says one thing at a time, only when there is
+ * a problem the sender can act on, and is empty otherwise -- a line that always reads
+ * something is a line nobody reads.
+ */
+function report(message = '') {
+  if (!note) return;
+  note.textContent = message;
+  note.classList[message === '' ? 'remove' : 'add']('note-problem');
+}
 let metadata = null;
 let deadline = null;
 let ticker = null;
@@ -57,12 +65,18 @@ function stopCountdown() { deadline = null; if (ticker !== null) window.clearInt
 // Which element the countdown writes into. The inbound form and the reveal gate each
 // have their own, and only one of the two is ever live in a page.
 let ttlTarget = ttlNote;
+// The label last written to the clock. The digits repaint every second; the label is
+// whole minutes and changes sixty times less often, and rewriting it on every tick
+// would make a screen reader announce the time once a second on a page whose whole
+// point is that someone is trying to concentrate on pasting a credential.
+let ttlLabel = '';
 function renderRemaining() {
   if (!deadline || !ttlTarget) return;
   const remaining = deadline.remaining();
   ttlTarget.textContent = formatRemaining(remaining);
   const minutes = Math.ceil(remaining / 60000);
-  ttlTarget.setAttribute('aria-label', remaining <= 0 ? 'expired' : `${minutes} minute${minutes === 1 ? '' : 's'} left`);
+  const label = remaining <= 0 ? 'expired' : `Time remaining: ${minutes} minute${minutes === 1 ? '' : 's'}`;
+  if (label !== ttlLabel) { ttlLabel = label; ttlTarget.setAttribute('aria-label', label); }
   if (remaining <= 0) show('unavailable');
 }
 /**
@@ -71,11 +85,17 @@ function renderRemaining() {
  * Static strings chosen by the *broker-declared* kind, never composed from anything a
  * requester sent: the page's own voice stays the page's. A descriptor may add a
  * sentence and replace the heading, and that is all it may do.
+ *
+ * `lede` is the fallback supporting line, and only `universal` has one. On a typed
+ * drop the heading already says which lane it is, so a line under it saying the same
+ * thing again is the clutter this layout exists to remove. On `universal` the sender
+ * genuinely has a choice to make, and nothing else on the page tells them they have
+ * it -- so that one line earns its place.
  */
 const MODE_COPY = {
-  text: { title: 'Send text privately to Hermes', lede: 'Send a private value for your current task.' },
-  files: { title: 'Send files privately to Hermes', lede: 'Send private files for your current task.' },
-  universal: { title: 'Send privately to Hermes', lede: 'Send private text or files for your current task.' },
+  text: { title: 'Send text', lede: null },
+  files: { title: 'Upload files', lede: null },
+  universal: { title: 'Send privately', lede: 'You can send text, files, or both.' },
 };
 
 function formatBytes(bytes) {
@@ -100,11 +120,34 @@ const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 function fileWantCopy() {
   const cap = limits();
   const total = `${formatBytes(cap.maxTotalBytes)} total`;
-  // With an exact count the heading beside this already says "Add 2 files", so
-  // repeating the count here would say the same thing twice in one line. The size
-  // ceiling is the part that is still news.
-  if (expectFiles !== null) return total;
-  return `Up to ${plural(cap.maxFiles, 'file')}, ${total}`;
+  // The count is stated once, in the instruction on the zone itself. What is left for
+  // this line is the ceilings -- disclosed here, before a sender picks a file too
+  // large, rather than only inside the error they get afterwards.
+  //
+  // The per-file ceiling is only a SECOND rule when it is actually lower than the
+  // total. On a default deployment the two are equal, and printing both would be the
+  // same number twice in one line: a rule nobody can break stated as though they
+  // could.
+  const ceilings = cap.maxFileBytes < cap.maxTotalBytes
+    ? `${total}, ${formatBytes(cap.maxFileBytes)} per file`
+    : total;
+  if (expectFiles !== null) return ceilings;
+  return `Up to ${plural(cap.maxFiles, 'file')}, ${ceilings}`;
+}
+
+/**
+ * The instruction on the drop zone, which is also the button's accessible name.
+ *
+ * This is where an exact count belongs: on the control the sender is about to use, in
+ * the sentence telling them to use it. It used to be said three times -- a heading, a
+ * limits line and a counter -- which is three chances to read a different number.
+ */
+function dropZoneCopy() {
+  if (expectFiles !== null) return `Choose ${plural(expectFiles, 'file')} or drag them here`;
+  // On a universal drop the textarea is the request and files are the option beside
+  // it, so the zone reads as the secondary lane it is.
+  if (metadata?.payload_kind === PAYLOAD_KIND_UNIVERSAL) return 'Or attach files';
+  return 'Choose files or drag them here';
 }
 
 function renderFiles() {
@@ -119,11 +162,16 @@ function renderFiles() {
     li.append(name, size, remove); fileList.append(li);
   });
   const total = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  // Nothing selected is nothing to count: the row is hidden rather than parked at
+  // "0 of 2 files · 0 B", which was a line that could only ever be read past.
+  fileTotal.hidden = selectedFiles.length === 0;
   // Progress against the expectation when there is one, so a sender can see how far
-  // along they are without counting rows; the plain tally otherwise.
+  // along they are without counting rows. The size is dropped from that case on
+  // purpose -- each row already carries its own, and the count is the thing the
+  // broker will actually enforce.
   fileTotal.textContent = expectFiles === null
     ? `${plural(selectedFiles.length, 'file')} · ${formatBytes(total)}`
-    : `${selectedFiles.length} of ${expectFiles} files · ${formatBytes(total)}`;
+    : `${selectedFiles.length} of ${expectFiles} selected`;
 }
 function addFiles(files) {
   if (pending) return;
@@ -132,14 +180,16 @@ function addFiles(files) {
   // An exact expectation is also a ceiling: a sixth file and a third file are refused
   // by the same line, and the message says which rule was met.
   if (expectFiles !== null && candidate.length > expectFiles) {
-    note.textContent = `This request is for exactly ${plural(expectFiles, 'file')}`;
+    report(`This request is for exactly ${plural(expectFiles, 'file')}`);
     return;
   }
-  if (candidate.length > cap.maxFiles) { note.textContent = `Choose at most ${cap.maxFiles} files`; return; }
-  if (candidate.some((f) => f.size > cap.maxFileBytes)) { note.textContent = `Each file must be at most ${formatBytes(cap.maxFileBytes)}`; return; }
+  if (candidate.length > cap.maxFiles) { report(`Choose at most ${cap.maxFiles} files`); return; }
+  if (candidate.some((f) => f.size > cap.maxFileBytes)) { report(`Each file must be at most ${formatBytes(cap.maxFileBytes)}`); return; }
   const total = candidate.reduce((sum, f) => sum + f.size, 0);
-  if (total > cap.maxTotalBytes) { note.textContent = `Files must total at most ${formatBytes(cap.maxTotalBytes)}`; return; }
-  selectedFiles = candidate; renderFiles(); note.textContent = 'Files ready · one secure send';
+  if (total > cap.maxTotalBytes) { report(`Files must total at most ${formatBytes(cap.maxTotalBytes)}`); return; }
+  // A successful selection is visible in the list and the tally. It does not also
+  // need a sentence congratulating the sender for making it.
+  selectedFiles = candidate; renderFiles(); report();
 }
 /**
  * Adapts the form to the drop it is serving, then renders the descriptor.
@@ -160,7 +210,6 @@ function applyFormDescriptor() {
   const kind = metadata?.payload_kind;
   const copy = MODE_COPY[kind] ?? MODE_COPY.universal;
   if (formTitle) formTitle.textContent = copy.title;
-  if (formLedeText) formLedeText.textContent = copy.lede;
 
   // `metadata.form` is absent entirely on a drop minted without a descriptor, which
   // is every drop that predates this. Absent and empty behave identically here.
@@ -171,10 +220,15 @@ function applyFormDescriptor() {
     formTitle.textContent = descriptor.label;
   }
   if (requestDescription) {
-    const text = typeof descriptor?.description === 'string' ? descriptor.description : '';
+    // One supporting paragraph, from one of two sources, never both. A requester's own
+    // sentence is always the better answer to "why am I being asked this", so it wins;
+    // the built-in line is what is left when nobody said anything. This is also the
+    // one element on the page whose language is not necessarily English.
+    const described = typeof descriptor?.description === 'string' && descriptor.description.length > 0;
+    const text = described ? descriptor.description : (copy.lede ?? '');
     requestDescription.textContent = text;
     // Collapsed rather than left empty: an empty paragraph would leave a gap where a
-    // sentence used to be, and "no descriptor" must look like the page always did.
+    // sentence used to be.
     requestDescription.hidden = text.length === 0;
   }
 
@@ -182,10 +236,13 @@ function applyFormDescriptor() {
   // exist -- the broker refuses a container against it before any crypto -- so showing
   // a picker would be offering something that cannot work.
   if (textarea) textarea.hidden = kind === PAYLOAD_KIND_FILES;
-  if (filePanel) filePanel.hidden = kind === PAYLOAD_KIND_TEXT;
-  if (filesHeading) {
-    filesHeading.textContent = expectFiles === null ? 'Add files' : `Add ${plural(expectFiles, 'file')}`;
+  if (filePanel) {
+    filePanel.hidden = kind === PAYLOAD_KIND_TEXT;
+    // Where both lanes are open the composer is the request and the picker is the
+    // option beside it, so the picker is drawn quieter rather than given equal weight.
+    filePanel.classList[kind === PAYLOAD_KIND_UNIVERSAL ? 'add' : 'remove']('file-panel--secondary');
   }
+  if (dropZone) dropZone.textContent = dropZoneCopy();
   if (filesLimits) filesLimits.textContent = fileWantCopy();
   renderFiles();
 }
@@ -215,10 +272,12 @@ function submissionProblem() {
 
 function wireInbound() {
   fileInput?.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+  // The zone is a button, so this is the click a keyboard Enter or Space produces too.
+  dropZone?.addEventListener('click', () => { if (!pending) fileInput?.click(); });
   if (dropZone) for (const type of ['dragenter', 'dragover']) dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('drag'); });
   if (dropZone) for (const type of ['dragleave', 'drop']) dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('drag'); if (type === 'drop') addFiles([...event.dataTransfer.files]); });
   sendButton.addEventListener('click', send);
-  textarea.addEventListener('input', () => { if (!metadata) return; const size = plaintextByteLength(textarea.value); note.textContent = size > metadata.max_plaintext_bytes ? `Too large — keep it under ${metadata.max_plaintext_bytes} bytes` : 'One secure send · no edits'; });
+  textarea.addEventListener('input', () => { if (!metadata) return; const size = plaintextByteLength(textarea.value); report(size > metadata.max_plaintext_bytes ? `Too large — keep it under ${metadata.max_plaintext_bytes} bytes` : ''); });
 }
 
 async function start() {
@@ -251,10 +310,10 @@ async function send() {
     // An empty form is not an error worth writing about -- the original behaviour,
     // preserved: put the cursor where the person has to type and say nothing.
     if (problem === '') { textarea.focus(); return; }
-    if (problem !== null) { note.textContent = problem; return; }
+    if (problem !== null) { report(problem); return; }
   }
-  if (!pending && plaintextByteLength(textarea.value) > metadata.max_plaintext_bytes) { note.textContent = `Too large — keep it under ${metadata.max_plaintext_bytes} bytes`; return; }
-  sendButton.disabled = true; sendButton.textContent = 'Sending…'; textarea.readOnly = true; if (fileInput) fileInput.disabled = true;
+  if (!pending && plaintextByteLength(textarea.value) > metadata.max_plaintext_bytes) { report(`Too large — keep it under ${metadata.max_plaintext_bytes} bytes`); return; }
+  sendButton.disabled = true; sendButton.textContent = 'Sending…'; textarea.readOnly = true; if (fileInput) fileInput.disabled = true; if (dropZone) dropZone.disabled = true;
   try {
     if (!pending) {
       if (selectedFiles.length === 0) pending = { declaration: 'text', envelope: await sealEnvelope({ capability, metadata, plaintext: textarea.value }) };
@@ -267,7 +326,7 @@ async function send() {
     }
     const outcome = await submitEnvelope({ capability, envelope: pending.envelope, declaration: pending.declaration, origin });
     if (outcome === 'received') { pending = null; textarea.value = ''; selectedFiles = []; renderFiles(); show('success'); return; }
-    if (outcome === 'unreachable') { note.textContent = 'Could not reach Hermes — press Send to try again'; sendButton.disabled = false; sendButton.textContent = 'Send to Hermes'; return; }
+    if (outcome === 'unreachable') { report('Could not reach Hermes — press Send to try again'); sendButton.disabled = false; sendButton.textContent = 'Send'; return; }
     show('unavailable');
   } catch { show('unavailable'); }
 }

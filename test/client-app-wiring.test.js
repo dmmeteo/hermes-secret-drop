@@ -11,14 +11,15 @@ import { after, before, describe, it } from 'node:test';
 
 import { claimFileDrop, splitHandoffUrl, startTestBroker } from './helpers/harness.js';
 
-const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total', 'form-title', 'form-lede-text', 'request-description', 'files-heading', 'files-limits'];
+const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total', 'form-title', 'request-description', 'files-limits'];
 
 function fakeDom() {
   function element(id = '') {
     return { id, hidden: false, value: '', textContent: '', disabled: false, readOnly: false,
       dataset: {}, focused: false, files: [], children: [], attributes: new Map(), handlers: new Map(),
       classList: { add() {}, remove() {} }, focus() { this.focused = true; },
-      setAttribute(name, value) { this.attributes.set(name, value); },
+      clicks: 0, click() { this.clicks += 1; },
+      sets: 0, setAttribute(name, value) { this.sets += 1; this.attributes.set(name, value); },
       get innerHTML() { throw new Error('innerHTML read on a node the page must build as text'); },
       set innerHTML(_value) { throw new Error('innerHTML written: the page must never build a node from a string'); },
       addEventListener(type, handler) { this.handlers.set(type, handler); },
@@ -156,12 +157,17 @@ describe('the page script wiring', () => {
     // descriptor: the mode is bound into the AEAD and the copy is not, so a
     // descriptor must not be able to talk the page into offering a lane the drop
     // cannot accept.
+    //
+    // The heading is the WHAT, and it is the only heading: the generic lede that used
+    // to sit under it is gone. A built-in supporting line survives on `universal`
+    // alone, because "text, files, or both" is the one fact neither the heading nor
+    // the placeholder carries -- on a typed drop it would only repeat the heading.
     const cases = [
-      { kind: 'text', textarea: false, panel: true, title: /text/i },
-      { kind: 'files', textarea: true, panel: false, title: /files/i },
-      { kind: 'universal', textarea: false, panel: false, title: /^Send privately to Hermes$/ },
+      { kind: 'text', textarea: false, panel: true, title: /^Send text$/, lede: null },
+      { kind: 'files', textarea: true, panel: false, title: /^Upload files$/, lede: null },
+      { kind: 'universal', textarea: false, panel: false, title: /^Send privately$/, lede: 'You can send text, files, or both.' },
     ];
-    for (const { kind, textarea, panel, title } of cases) {
+    for (const { kind, textarea, panel, title, lede } of cases) {
       const created = await broker.control({ op: 'create', payload_kind: kind });
       const { capability } = splitHandoffUrl(created.url);
       const dom = await loadApp({ hash: `#${capability}`, origin: broker.baseUrl });
@@ -170,8 +176,17 @@ describe('the page script wiring', () => {
       assert.equal(dom.elements.get('secret').hidden, textarea, `${kind}: textarea visibility`);
       assert.equal(dom.elements.get('file-panel').hidden, panel, `${kind}: file panel visibility`);
       assert.match(dom.elements.get('form-title').textContent, title, `${kind}: heading`);
-      // The expiry and secrecy sentence is the page's own and is never rewritten.
-      assert.equal(dom.elements.get('request-description').hidden, true, `${kind}: no descriptor`);
+      const supporting = dom.elements.get('request-description');
+      if (lede === null) {
+        assert.equal(supporting.hidden, true, `${kind}: no descriptor, and nothing generic in its place`);
+      } else {
+        assert.equal(supporting.hidden, false, `${kind}: the lane choice is worth saying`);
+        assert.equal(supporting.textContent, lede, `${kind}: exactly one supporting line`);
+      }
+      // Nothing decorative greets the sender: the status line is for problems only.
+      assert.equal(dom.elements.get('note').textContent, '', `${kind}: no decorative status copy`);
+      // An empty tally is not information. It appears once there is something to count.
+      assert.equal(dom.elements.get('file-total').hidden, true, `${kind}: no empty counter`);
     }
   });
 
@@ -190,18 +205,31 @@ describe('the page script wiring', () => {
       dom.elements.get('request-description').textContent,
       'Upload the two staging config files.',
     );
-    // The count is stated once, in the heading; the line beside it carries the size
-    // ceiling, which is the part the heading does not already say.
-    assert.match(dom.elements.get('files-heading').textContent, /Add 2 files/);
-    assert.match(dom.elements.get('files-limits').textContent, /MiB total/);
-    assert.doesNotMatch(dom.elements.get('files-limits').textContent, /2 files/);
+    // The count is stated ONCE, inside the instruction the sender is about to act on.
+    // The helper under it carries the ceilings, which is the part the instruction does
+    // not already say -- no separate "Add 2 files" heading repeating it a third time.
+    assert.match(dom.elements.get('drop-zone').textContent, /Choose 2 files/);
+    const ceilings = dom.elements.get('files-limits').textContent;
+    assert.match(ceilings, /MiB total/);
+    assert.doesNotMatch(ceilings, /2 files/);
+    // This deployment's per-file ceiling IS the total. Saying "42.0 MiB total, 42.0
+    // MiB per file" states one rule as two, and the second is one no sender could
+    // break -- the exact kind of line this layout exists to stop printing.
+    assert.doesNotMatch(ceilings, /per file/, 'a ceiling equal to the total is not a second rule');
+
+    // The drop zone is a real button, so it is reachable and operable from the
+    // keyboard; a <label for> alone never was.
+    assert.equal(dom.elements.get('files').clicks, 0);
+    dom.elements.get('drop-zone').handlers.get('click')(new (class { preventDefault() {} })());
+    assert.equal(dom.elements.get('files').clicks, 1, 'the drop zone opens the picker');
 
     // One file of two: the count is short, so Send does nothing and the panel says
     // how far along the selection is.
     const input = dom.elements.get('files');
     input.files = [fileLike('one.conf', [1])];
     await input.handlers.get('change')();
-    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 files/);
+    assert.equal(dom.elements.get('file-total').hidden, false, 'now there is something to count');
+    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 selected$/);
     await dom.elements.get('send').handlers.get('click')();
     assert.equal(broker.testSnapshot(created.handoff_id).state, 'pending', 'short count sealed nothing');
     assert.match(dom.elements.get('note').textContent, /exactly 2 files/);
@@ -209,12 +237,12 @@ describe('the page script wiring', () => {
     // A third file is refused at selection time, before any read or crypto.
     input.files = [fileLike('two.conf', [2]), fileLike('three.conf', [3])];
     await input.handlers.get('change')();
-    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 files/, 'the extra was not taken');
+    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 selected$/, 'the extra was not taken');
 
     // Exactly two goes through.
     input.files = [fileLike('two.conf', [2])];
     await input.handlers.get('change')();
-    assert.match(dom.elements.get('file-total').textContent, /^2 of 2 files/);
+    assert.match(dom.elements.get('file-total').textContent, /^2 of 2 selected$/);
     await dom.elements.get('send').handlers.get('click')();
     assert.equal(dom.elements.get('success').hidden, false, 'and lands on the receipt');
     assert.equal(broker.testSnapshot(created.handoff_id).state, 'submitted');
@@ -353,7 +381,7 @@ describe('the page script wiring', () => {
 
     textarea.value = 'PGADMIN_DEFAULT_PASSWORD=example-not-a-real-secret';
     await textarea.handlers.get('input')();
-    assert.equal(dom.elements.get('note').textContent, 'One secure send · no edits');
+    assert.equal(dom.elements.get('note').textContent, '', 'typing says nothing; the line is for problems');
 
     await send.handlers.get('click')();
     assert.equal(dom.elements.get('success').hidden, false, 'success screen after send');
@@ -437,15 +465,20 @@ describe('the page script wiring', () => {
     assert.match(ttl.textContent, /^[12]:\d{2}$/, 'starts near two minutes');
     assert.match(
       ttl.attributes.get('aria-label'),
-      /^[12] minutes? left$/,
-      'the unannounced digits get a readable whole-minute label',
+      /^Time remaining: [12] minutes?$/,
+      'the digits get a readable label that names what they are',
     );
+    const labelWrites = ttl.sets;
     const first = ttl.textContent;
 
     await new Promise((resolve) => setTimeout(resolve, 1100));
     dom.tick();
     assert.notEqual(ttl.textContent, first, 'the label moves with real elapsed time');
     assert.match(ttl.textContent, /^[01]:\d{2}$/);
+    // The digits repainted; the whole-minute label did not, because it did not change.
+    // Rewriting it every second is what would make a screen reader read out the clock
+    // once a second over whatever the person was actually doing.
+    assert.equal(ttl.sets, labelWrites, 'the accessible label is not rewritten every tick');
 
     // A throttled background tab can miss ticks, so returning must resync
     // rather than trust the timer.
