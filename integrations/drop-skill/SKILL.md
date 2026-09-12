@@ -55,7 +55,7 @@ know from the conversation**:
 
 | Argument | Use it when | Example |
 |---|---|---|
-| `description` | almost always — one short sentence telling the user what to paste or upload | `Paste the staging deploy token from 1Password.` |
+| `description` | almost always — one short sentence telling the user what to supply | `Paste the API token for the staging deployment. Do not include other credentials.` |
 | `label` | a heading would help them recognise the request | `Staging deploy token` |
 | `mode` | you know it is text (`text`) or files (`files`) | `files` |
 | `expect_files` | they named a number, with `mode: files` | `2`, for "both config files" |
@@ -69,6 +69,17 @@ Write `description` in the language of the conversation. It is plain text, one
 line, and the user reads it next to an input they are about to paste a
 credential into, so: no secrets in it, no URLs, no markup, and nothing that
 pressures them. Say what you need and stop.
+
+**Describe the input, not what happens to it.** Say what to supply and, when it
+helps, what to leave out — `Paste the API token for the staging deployment. Do
+not include other credentials.` Do **not** write anything about storage,
+retention, deletion, who can see the value, or how it is protected. You do not
+know what the eventual consumer does with a secret once it is claimed, so
+"used once and not stored" or "this is end-to-end encrypted" would be a
+guarantee you cannot keep — and it is the kind of reassurance that makes
+someone paste more than they should. The page already tells the user what it
+can honestly promise about expiry and about not posting to chat, in its own
+built-in wording, and your sentence cannot change or override that.
 
 Then stop and wait. You are notified when the form is used; that notification
 carries a `drop_id`. Only then call `claim_private_input` with it. One claim

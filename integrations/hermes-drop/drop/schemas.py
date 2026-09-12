@@ -83,11 +83,17 @@ REQUEST_PRIVATE_INPUT: Dict[str, Any] = {
             "description": {
                 "type": "string",
                 "description": (
-                    "One short sentence shown INSIDE the form telling the user what to "
-                    "paste or upload, e.g. 'Upload the two config files for the "
-                    "staging deployment.' Non-secret, plain text, one line, at most "
-                    "300 characters. Write it in the language of the conversation. "
-                    "Never put a secret, a URL or markup in it."
+                    "One short sentence shown INSIDE the form telling the user WHAT TO "
+                    "SUPPLY, e.g. 'Upload the two config files for the staging "
+                    "deployment.' or 'Paste the API token for the staging deployment. "
+                    "Do not include other credentials.' Non-secret, plain text, one "
+                    "line, at most 300 characters. Write it in the language of the "
+                    "conversation. Never put a secret, a URL or markup in it. Do NOT "
+                    "make promises about what happens to the value afterwards -- no "
+                    "claims about storage, retention, deletion, who sees it or how it "
+                    "is protected. You do not know what the eventual consumer does "
+                    "with it, and the page already states its own guarantees in its "
+                    "own words."
                 ),
             },
             "label": {

@@ -22,7 +22,7 @@
 // broken form. Run it directly.
 //
 //   node scripts/form-screenshots.mjs [--out DIR] [--keep-open]
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,6 +44,20 @@ const VIEWPORTS = {
   desktop: { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false },
   phone: { width: 390, height: 844, deviceScaleFactor: 2, mobile: true },
 };
+
+/**
+ * Both colour schemes, explicitly.
+ *
+ * `src/public/app.css` has carried a `prefers-color-scheme: dark` block since long
+ * before this change, and the page has no theme toggle: it follows the device. A
+ * headless browser defaults to **light**, which is not what most people looking at a
+ * Drop link actually see — so a preview run that emulated nothing would quietly
+ * document one half of the product and call it the product.
+ *
+ * Emulated rather than inferred, and named in the filename, so an image can never be
+ * mistaken for the other scheme's.
+ */
+const THEMES = ['dark', 'light'];
 
 const args = process.argv.slice(2);
 const outDir = args.includes('--out')
@@ -161,6 +175,14 @@ async function openPage(cdp) {
   return { targetId, sessionId };
 }
 
+async function setTheme(cdp, sessionId, theme) {
+  await cdp.send(
+    'Emulation.setEmulatedMedia',
+    { features: [{ name: 'prefers-color-scheme', value: theme }] },
+    sessionId,
+  );
+}
+
 async function navigate(cdp, sessionId, url) {
   // Via about:blank, and that is load-bearing rather than tidy. Every URL here differs
   // from the last only in its FRAGMENT, which is a same-document navigation: the
@@ -187,6 +209,9 @@ async function evaluate(cdp, sessionId, expression) {
   return result.value;
 }
 
+/** Every PNG this run wrote, so the count in a report is derived and not recalled. */
+const written = [];
+
 async function shoot(cdp, sessionId, viewport, file) {
   await cdp.send('Emulation.setDeviceMetricsOverride', VIEWPORTS[viewport], sessionId);
   // Past the fold as well: a description can push the Send button down, and a
@@ -197,6 +222,7 @@ async function shoot(cdp, sessionId, viewport, file) {
     sessionId,
   );
   await writeFile(file, Buffer.from(data, 'base64'));
+  written.push(file);
   return file;
 }
 
@@ -267,7 +293,13 @@ async function main() {
           ttl_seconds: 900,
           form: {
             label: 'Staging deploy token',
-            description: 'Paste the staging deploy token from 1Password. It is used once and not stored.',
+            // Neutral input instruction on purpose. A requester describes WHAT TO
+            // SUPPLY; it must not promise what happens to the value afterwards. A
+            // generic drop has no idea what the eventual consumer does with a secret,
+            // so copy like "used once and not stored" would be a retention guarantee
+            // nothing in this system can keep. What the page can honestly say about
+            // its own lifecycle it already says, in its own built-in words.
+            description: 'Paste the API token for the staging deployment. Do not include other credentials.',
           },
         },
         expect: 'textarea only, described',
@@ -304,6 +336,7 @@ async function main() {
     ];
 
     const { sessionId } = await openPage(cdp);
+    await setTheme(cdp, sessionId, 'dark');
 
     // Any dialog at all would mean a description became script: nothing on these
     // pages legitimately opens one, so the counter IS the assertion. Dismissed as
@@ -342,9 +375,16 @@ async function main() {
         })()
       `);
 
-      for (const viewport of Object.keys(VIEWPORTS)) {
-        await shoot(cdp, sessionId, viewport, join(outDir, `${shape.name}-${viewport}.png`));
+      // Both schemes, both widths. The theme is in the filename because a Drop page
+      // follows the device and has no toggle, so an unlabelled image is ambiguous
+      // about which half of the product it shows.
+      for (const theme of THEMES) {
+        await setTheme(cdp, sessionId, theme);
+        for (const viewport of Object.keys(VIEWPORTS)) {
+          await shoot(cdp, sessionId, viewport, join(outDir, `${shape.name}-${viewport}-${theme}.png`));
+        }
       }
+      await setTheme(cdp, sessionId, 'dark');
       // Re-read overflow at phone width, which is where it actually matters.
       const phoneOverflow = await evaluate(
         cdp,
@@ -433,7 +473,7 @@ async function main() {
         blocked.state === 'form',
         `note=${JSON.stringify(blocked.note)}`,
       );
-      await shoot(cdp, sessionId, 'phone', join(outDir, 'files-count-short-phone.png'));
+      await shoot(cdp, sessionId, 'phone', join(outDir, 'files-count-short-phone-dark.png'));
       await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
 
       // Add the SECOND file to the one already chosen, which is what a person does
@@ -484,7 +524,7 @@ async function main() {
       await navigate(cdp, sessionId, `${broker.baseUrl}/#${'z'.repeat(22)}`);
       const state = await evaluate(cdp, sessionId, "document.getElementById('app').dataset.state");
       record('an unknown capability shows the unavailable screen', state === 'unavailable', `state=${state}`);
-      await shoot(cdp, sessionId, 'phone', join(outDir, 'unavailable-phone.png'));
+      await shoot(cdp, sessionId, 'phone', join(outDir, 'unavailable-phone-dark.png'));
       await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
     }
   } finally {
@@ -500,6 +540,22 @@ async function main() {
     await broker.close();
     await rm(runDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
       .catch((error) => console.warn(`could not remove ${runDir}: ${error.code ?? error.message}`));
+  }
+
+  // Enumerated from what was actually written, and cross-checked against what is on
+  // disk: a screenshot count quoted from memory is exactly the kind of detail that
+  // drifts out of a report, and the directory is the only thing that settles it.
+  const onDisk = (await readdir(outDir)).filter((name) => name.endsWith('.png')).sort();
+  console.log(`\nscreenshots written this run: ${written.length}`);
+  for (const file of written.map((file) => file.split('/').pop()).sort()) {
+    console.log(`  ${file}`);
+  }
+  console.log(`png files now in ${outDir}: ${onDisk.length}`);
+  if (onDisk.length !== written.length) {
+    console.log(`  note: ${onDisk.length - written.length} png(s) predate this run`);
+    for (const name of onDisk.filter((name) => !written.some((file) => file.endsWith(`/${name}`)))) {
+      console.log(`    stale: ${name}`);
+    }
   }
 
   const failed = results.filter((r) => !r.ok);
