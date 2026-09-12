@@ -251,9 +251,28 @@ describe('outbound drops: the public metadata seam', () => {
     for (const field of ['ct', 'iv', 'verifier', 'code', 'plaintext']) {
       assert.ok(!(field in metadata), `${field} must not be in metadata`);
     }
-    assert.ok(!serialized.includes(drop.code), 'metadata must not carry the code');
     assert.ok(!serialized.includes(drop.key), 'metadata must not carry the key');
     assert.ok(!serialized.includes(SECRET));
+
+    // The code is three DIGITS, and that makes a substring search over this response a
+    // collision test rather than a leak test. Every field it is *required* to carry is
+    // either a number or an independently random id: `ack_window_ms: 60000` contains
+    // "600" and "000" for every drop ever minted, each 13-digit epoch field offers
+    // eleven more chances, `alg` is "A256GCM", and a 22-character base64url `did`
+    // matches by luck often enough to see. Measured on this path, a serialized
+    // `includes(code)` fails ~2% of runs — one gate run in fifty, for nothing.
+    //
+    // A coincidence inside a value the broker generated without ever consulting the
+    // code is not a disclosure. What would be is a field that IS the code, which is
+    // also the shape the realistic regression takes: someone adds `code`, `code_hint`
+    // or `expected` to this response. That is what is asserted, alongside the
+    // by-name absence check above.
+    //
+    // The `key` and `SECRET` checks stay substring checks because they are long enough
+    // that a coincidental match is not a thing that happens.
+    for (const [field, value] of Object.entries(metadata)) {
+      assert.notEqual(String(value), drop.code, `${field} must not be the code`);
+    }
   });
 
   it('answers one identical unavailable for unknown, malformed, expired and gone', async () => {
