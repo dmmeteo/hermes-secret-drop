@@ -1,4 +1,4 @@
-import { DEFAULT_FILE_LIMITS, FILE_ENVELOPE_VERSION, PAYLOAD_KIND_TEXT, PAYLOAD_KIND_UNIVERSAL, encodeFileContainer } from '../file-container.js';
+import { DEFAULT_FILE_LIMITS, FILE_ENVELOPE_VERSION, PAYLOAD_KIND_FILES, PAYLOAD_KIND_TEXT, PAYLOAD_KIND_UNIVERSAL, encodeFileContainer } from '../file-container.js';
 import { parseOutboundFragment } from '../outbound-envelope.js';
 import { isSensitiveFieldType, parseOutboundPayload } from '../outbound-payload.js';
 import { createDeadline, formatRemaining } from './countdown.js';
@@ -24,7 +24,19 @@ const fileInput = $('files');
 const dropZone = $('drop-zone');
 const fileList = $('file-list');
 const fileTotal = $('file-total');
+const formTitle = $('form-title');
+const formLedeText = $('form-lede-text');
+const requestDescription = $('request-description');
+const filesHeading = $('files-heading');
+const filesLimits = $('files-limits');
 let selectedFiles = [];
+/**
+ * The exact number of files this drop will accept, or null for "up to the advertised
+ * maximum". Mirrored from the descriptor purely to shape the controls and the copy:
+ * the broker checks the real count on the decoded container, so everything this
+ * variable does is a convenience for the sender.
+ */
+let expectFiles = null;
 let metadata = null;
 let deadline = null;
 let ticker = null;
@@ -53,6 +65,19 @@ function renderRemaining() {
   ttlTarget.setAttribute('aria-label', remaining <= 0 ? 'expired' : `${minutes} minute${minutes === 1 ? '' : 's'} left`);
   if (remaining <= 0) show('unavailable');
 }
+/**
+ * The built-in English chrome for each payload kind.
+ *
+ * Static strings chosen by the *broker-declared* kind, never composed from anything a
+ * requester sent: the page's own voice stays the page's. A descriptor may add a
+ * sentence and replace the heading, and that is all it may do.
+ */
+const MODE_COPY = {
+  text: { title: 'Send text privately to Hermes', lede: 'Send a private value for your current task.' },
+  files: { title: 'Send files privately to Hermes', lede: 'Send private files for your current task.' },
+  universal: { title: 'Send privately to Hermes', lede: 'Send private text or files for your current task.' },
+};
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -61,6 +86,27 @@ function formatBytes(bytes) {
 function limits() {
   return { maxFiles: metadata?.max_files ?? DEFAULT_FILE_LIMITS.maxFiles, maxFileBytes: metadata?.max_file_bytes ?? DEFAULT_FILE_LIMITS.maxFileBytes, maxTotalBytes: metadata?.max_total_bytes ?? DEFAULT_FILE_LIMITS.maxTotalBytes };
 }
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
+/**
+ * What the file panel says it wants. Driven by the drop's own advertised limits
+ * rather than hardcoded, which is what keeps the sentence true when an operator
+ * narrows `HANDOFF_MAX_FILES` or a requester narrows `max_files`.
+ *
+ * The distinction the copy has to carry: an exact count is a promise the broker will
+ * enforce, and an upper bound is not. Absent an expectation the page says "up to N"
+ * and never invents an exactness nobody asked for.
+ */
+function fileWantCopy() {
+  const cap = limits();
+  const total = `${formatBytes(cap.maxTotalBytes)} total`;
+  // With an exact count the heading beside this already says "Add 2 files", so
+  // repeating the count here would say the same thing twice in one line. The size
+  // ceiling is the part that is still news.
+  if (expectFiles !== null) return total;
+  return `Up to ${plural(cap.maxFiles, 'file')}, ${total}`;
+}
+
 function renderFiles() {
   if (!fileList || !fileTotal) return;
   fileList.textContent = '';
@@ -73,18 +119,100 @@ function renderFiles() {
     li.append(name, size, remove); fileList.append(li);
   });
   const total = selectedFiles.reduce((sum, file) => sum + file.size, 0);
-  fileTotal.textContent = `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} · ${formatBytes(total)}`;
+  // Progress against the expectation when there is one, so a sender can see how far
+  // along they are without counting rows; the plain tally otherwise.
+  fileTotal.textContent = expectFiles === null
+    ? `${plural(selectedFiles.length, 'file')} · ${formatBytes(total)}`
+    : `${selectedFiles.length} of ${expectFiles} files · ${formatBytes(total)}`;
 }
 function addFiles(files) {
   if (pending) return;
   const candidate = [...selectedFiles, ...files];
   const cap = limits();
+  // An exact expectation is also a ceiling: a sixth file and a third file are refused
+  // by the same line, and the message says which rule was met.
+  if (expectFiles !== null && candidate.length > expectFiles) {
+    note.textContent = `This request is for exactly ${plural(expectFiles, 'file')}`;
+    return;
+  }
   if (candidate.length > cap.maxFiles) { note.textContent = `Choose at most ${cap.maxFiles} files`; return; }
   if (candidate.some((f) => f.size > cap.maxFileBytes)) { note.textContent = `Each file must be at most ${formatBytes(cap.maxFileBytes)}`; return; }
   const total = candidate.reduce((sum, f) => sum + f.size, 0);
   if (total > cap.maxTotalBytes) { note.textContent = `Files must total at most ${formatBytes(cap.maxTotalBytes)}`; return; }
   selectedFiles = candidate; renderFiles(); note.textContent = 'Files ready · one secure send';
 }
+/**
+ * Adapts the form to the drop it is serving, then renders the descriptor.
+ *
+ * Two sources, kept apart deliberately. The *mode* comes from `payload_kind`, which
+ * the broker fixed at mint and binds into the AEAD -- so which controls appear is not
+ * something a descriptor can talk the page into. The *copy* comes from the descriptor,
+ * and is written with `textContent` into elements that already exist in the shipped
+ * document: no node is built from it, no attribute is set from it, and no anchor is
+ * ever created, so a description containing markup renders as those characters.
+ *
+ * That is a defence against a description becoming *code*. It is not a defence against
+ * a description being *misleading* -- copy can still lie in plain words, which is what
+ * the bounds and the model-facing guidance are for, and why the page's own promises
+ * about expiry and secrecy live outside the rewritable span (src/public/index.html).
+ */
+function applyFormDescriptor() {
+  const kind = metadata?.payload_kind;
+  const copy = MODE_COPY[kind] ?? MODE_COPY.universal;
+  if (formTitle) formTitle.textContent = copy.title;
+  if (formLedeText) formLedeText.textContent = copy.lede;
+
+  // `metadata.form` is absent entirely on a drop minted without a descriptor, which
+  // is every drop that predates this. Absent and empty behave identically here.
+  const descriptor = metadata?.form ?? null;
+  expectFiles = Number.isInteger(descriptor?.expect_files) ? descriptor.expect_files : null;
+
+  if (formTitle && typeof descriptor?.label === 'string' && descriptor.label.length > 0) {
+    formTitle.textContent = descriptor.label;
+  }
+  if (requestDescription) {
+    const text = typeof descriptor?.description === 'string' ? descriptor.description : '';
+    requestDescription.textContent = text;
+    // Collapsed rather than left empty: an empty paragraph would leave a gap where a
+    // sentence used to be, and "no descriptor" must look like the page always did.
+    requestDescription.hidden = text.length === 0;
+  }
+
+  // Which controls this drop can actually accept. A `text` drop's file lane does not
+  // exist -- the broker refuses a container against it before any crypto -- so showing
+  // a picker would be offering something that cannot work.
+  if (textarea) textarea.hidden = kind === PAYLOAD_KIND_FILES;
+  if (filePanel) filePanel.hidden = kind === PAYLOAD_KIND_TEXT;
+  if (filesHeading) {
+    filesHeading.textContent = expectFiles === null ? 'Add files' : `Add ${plural(expectFiles, 'file')}`;
+  }
+  if (filesLimits) filesLimits.textContent = fileWantCopy();
+  renderFiles();
+}
+
+/**
+ * Why this submission cannot go yet, or null.
+ *
+ * A convenience for the sender and nothing more: every rule here is enforced again by
+ * the broker on the decoded payload, and a page that skipped all of it would be safe
+ * and merely unhelpful.
+ */
+function submissionProblem() {
+  const kind = metadata?.payload_kind;
+  if (kind === PAYLOAD_KIND_FILES) {
+    if (expectFiles !== null && selectedFiles.length !== expectFiles) {
+      return `This request is for exactly ${plural(expectFiles, 'file')}`;
+    }
+    if (selectedFiles.length === 0) return 'Choose the files to send';
+    return null;
+  }
+  if (textarea.value.length === 0 && selectedFiles.length === 0) return '';
+  if (expectFiles !== null && selectedFiles.length > 0 && selectedFiles.length !== expectFiles) {
+    return `This request is for exactly ${plural(expectFiles, 'file')}`;
+  }
+  return null;
+}
+
 function wireInbound() {
   fileInput?.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
   if (dropZone) for (const type of ['dragenter', 'dragover']) dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('drag'); });
@@ -97,16 +225,34 @@ async function start() {
   if (!capability) return show('unavailable');
   const askedAt = performance.now();
   metadata = await fetchMetadata({ capability, origin });
-  if (!metadata || (metadata.payload_kind !== PAYLOAD_KIND_TEXT && metadata.payload_kind !== PAYLOAD_KIND_UNIVERSAL)) return show('unavailable');
+  // The kinds this page can serve. `files` is new here: until a requester could ask
+  // for one, no file-kind drop was ever minted with a browser in mind, so the page
+  // refused it rather than render a form whose textarea could not be submitted. It can
+  // now, and the lane it needs -- a v2 container behind the `files` declaration -- is
+  // one this bundle already seals for universal drops. Anything OUTSIDE this set is
+  // still a broker this page does not understand, and still `unavailable`.
+  const servable = [PAYLOAD_KIND_TEXT, PAYLOAD_KIND_FILES, PAYLOAD_KIND_UNIVERSAL];
+  if (!metadata || !servable.includes(metadata.payload_kind)) return show('unavailable');
   deadline = createDeadline({ expiresAt: metadata.expires_at, now: metadata.now, elapsedSinceAnswerMs: performance.now() - askedAt });
   renderRemaining(); if (!deadline) return;
-  show('form'); textarea.focus(); ticker = window.setInterval(renderRemaining, 1000);
+  // Before `show`, so the form is never painted in the generic shape and then
+  // rearranged in front of the person reading it.
+  applyFormDescriptor();
+  show('form');
+  if (metadata.payload_kind !== PAYLOAD_KIND_FILES) textarea.focus();
+  ticker = window.setInterval(renderRemaining, 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) renderRemaining(); });
 }
 
 async function send() {
   if (!metadata || sendButton.disabled) return;
-  if (!pending && textarea.value.length === 0 && selectedFiles.length === 0) { textarea.focus(); return; }
+  if (!pending) {
+    const problem = submissionProblem();
+    // An empty form is not an error worth writing about -- the original behaviour,
+    // preserved: put the cursor where the person has to type and say nothing.
+    if (problem === '') { textarea.focus(); return; }
+    if (problem !== null) { note.textContent = problem; return; }
+  }
   if (!pending && plaintextByteLength(textarea.value) > metadata.max_plaintext_bytes) { note.textContent = `Too large — keep it under ${metadata.max_plaintext_bytes} bytes`; return; }
   sendButton.disabled = true; sendButton.textContent = 'Sending…'; textarea.readOnly = true; if (fileInput) fileInput.disabled = true;
   try {

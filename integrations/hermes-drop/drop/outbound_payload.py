@@ -197,6 +197,43 @@ def _has_forbidden_character(text: str) -> bool:
     return any(unicodedata.category(char) in _FORBIDDEN_CATEGORIES for char in text)
 
 
+def display_text_problem(raw: Any, *, max_chars: int) -> Optional[str]:
+    """The strict, NON-normalising twin of ``src/outbound-payload.js``'s
+    ``displayTextProblem``: ``"bad"``, ``"too_long"`` or ``None``.
+
+    Used by the inbound form descriptor (``drop/form_request.py``), which must refuse
+    what it cannot render rather than repair it -- a collapsed double space is not the
+    string the caller composed, and the caller is entitled to find out.
+
+    Deliberately NOT what :func:`_normalise_heading` below does, and the difference is
+    worth stating. That one collapses whitespace and strips before measuring, because
+    the outbound producer is a pre-check in front of an authoritative broker and its
+    job is to send something the broker will accept. This one *is* the pre-check for a
+    schema whose rule is "no silent repair", so it reports the problem and changes
+    nothing.
+
+    The check order matches the JavaScript line for line, including that the length is
+    tested before the character classes -- so an over-long string containing a bidi
+    override is ``"too_long"`` in both languages rather than ``"bad"`` in one of them.
+    ``len`` on a ``str`` counts code points, which is what the bound is specified in.
+    """
+    if not isinstance(raw, str) or raw == "":
+        return "bad"
+    if len(raw) > max_chars:
+        return "too_long"
+    if _has_forbidden_character(raw):
+        return "bad"
+    if _EXOTIC_WHITESPACE.search(raw):
+        return "bad"
+    if "  " in raw:
+        return "bad"
+    if raw != raw.strip():
+        return "bad"
+    if not any(unicodedata.category(char)[0] in ("L", "N") for char in raw):
+        return "bad"
+    return None
+
+
 def _normalise_heading(raw: Any, *, max_chars: int, bad: str, too_long: str) -> str:
     """A label or a title: collapsed, stripped, then checked.
 
@@ -407,6 +444,7 @@ def _worst_case(payload: Mapping[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_FIELD_TYPE",
+    "display_text_problem",
     "DEFAULT_GENERATE_KIND",
     "DEFAULT_GENERATE_LENGTH",
     "FIELD_TYPES",

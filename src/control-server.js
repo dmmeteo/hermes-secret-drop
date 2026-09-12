@@ -7,7 +7,8 @@ import { createServer } from 'node:net';
 import { dirname } from 'node:path';
 
 import { PAYLOAD_KINDS } from './broker.js';
-import { PAYLOAD_KIND_FILES, PAYLOAD_KIND_UNIVERSAL } from './file-container.js';
+import { PAYLOAD_KIND_FILES, PAYLOAD_KIND_TEXT, PAYLOAD_KIND_UNIVERSAL } from './file-container.js';
+import { FORM_PROTOCOL, validateFormRequest } from './form-request.js';
 import { expiredNotice, receivedNotice, waitingNotice } from './notice.js';
 import { OUTBOUND_PROTOCOL } from './outbound-drop.js';
 import { outboundNotice } from './outbound-notice.js';
@@ -695,10 +696,29 @@ async function handleControlRequest(request, broker) {
         }
       }
 
+      // The form descriptor is checked on the same terms and in the same place as
+      // the kind and the count: before minting, so a descriptor the page could not
+      // render never costs a handoff. The broker validates it again as the authority
+      // -- what this seam adds is the `reason`, which is the only way a caller finds
+      // out WHICH rule it broke. The reason is a code and never carries the offending
+      // string: a control response reaches a plugin, a plugin's refusal reaches a
+      // model, and a model's context reaches durable session state.
+      const descriptor = validateFormRequest({
+        form: request.form,
+        // Absent means `text`, which is what `broker.create` defaults to -- so the
+        // two seams agree about which kind a descriptor is being judged against.
+        payloadKind: payloadKind ?? PAYLOAD_KIND_TEXT,
+        maxFiles,
+      });
+      if (!descriptor.ok) {
+        return { ok: false, error: 'invalid_request', reason: descriptor.reason };
+      }
+
       const created = await broker.create({
         ...(request.ttl_seconds === undefined ? {} : { ttlSeconds: Number(request.ttl_seconds) }),
         ...(payloadKind === undefined ? {} : { payloadKind }),
         ...(maxFiles === undefined ? {} : { maxFiles }),
+        ...(request.form === undefined ? {} : { form: request.form }),
       });
       if (!created.ok) return created;
 
@@ -718,6 +738,13 @@ async function handleControlRequest(request, broker) {
         // were separate capabilities for one release and a client cannot assume
         // the pair, so both are advertised.
         file_claim_protocol: FILE_CLAIM_PROTOCOL,
+        // The third pre-flight field, and it exists for the reason the other two do.
+        // A broker without it accepts a `form` key by ignoring it: it would mint a
+        // drop, render the old generic page, and take any file count at all, so the
+        // user would be asked the wrong question and the requester would never know.
+        // A client that means "exactly two files, and here is why" therefore reads
+        // this BEFORE it posts a link. Absence means "cannot", never "probably fine".
+        form_protocol: FORM_PROTOCOL,
         // The outbound direction, advertised on the response every *inbound* drop
         // starts with as well as on its own, for the same pre-flight reason as
         // `file_claim_protocol`: a plugin learns whether this broker can hand a

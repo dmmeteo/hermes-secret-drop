@@ -30,7 +30,23 @@ Existing interfaces become universal rather than adding parallel file variants:
   - text → existing private-text claim/vault path;
   - files → file claim protocol → private spool paths.
 
-The model must not choose or predict the payload kind when requesting the drop. The sender decides in the browser.
+> **Superseded (adaptive inbound form).** This rule stood while the form had no way
+> to say what it wanted: a predicted kind could only be a guess, and a wrong guess
+> takes a lane away from the sender. The requester may now state a payload kind
+> **when it already knows one**, alongside a short description of what is being
+> asked for — see `form_request` in `contract/control-protocol.json`.
+>
+> What did not change, and is what the rule was protecting:
+>
+> - `universal` is still the default and still the documented fallback for anything
+>   unknown, so the sender still decides on every universal link;
+> - a typed drop still refuses the other lane rather than silently accepting it;
+> - nothing lets a requester choose a destination.
+>
+> The original sentence, retained because the reasoning above is a reply to it:
+>
+> ~~The model must not choose or predict the payload kind when requesting the drop.
+> The sender decides in the browser.~~
 
 ### Browser
 

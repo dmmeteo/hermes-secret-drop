@@ -58,6 +58,21 @@ button, textarea, input { font: inherit; }
 /* What a Hermes Drop is, above the code box. Not a footnote: it is the only place
    the user is told the reveal is one-shot, so it reads as prose rather than as fine
    print. */
+/* The requester's own sentence. Set apart from the page's voice by the rule on the
+   left rather than by a box or an icon: it is quiet copy, not a warning, and it must
+   not compete with the built-in expiry and secrecy line above it. Wraps freely and
+   breaks long unbroken strings, so a description of any shape the schema allows
+   cannot push the layout sideways on a phone. */
+.request-note {
+  margin: 14px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .explain { margin: 14px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
 .explain li { margin: 7px 0; }
 .explain strong { color: var(--ink); }

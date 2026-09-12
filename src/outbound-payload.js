@@ -225,12 +225,20 @@ export function isSafeUrlValue(value) {
 }
 
 /**
- * The rules a heading has to satisfy: single line, no exotic whitespace, no
- * padding, and at least one letter or digit so it says something. Shared by
- * `label` and `title`, which differ only in their ceiling and in the code they
- * refuse under.
+ * The rules a short piece of display text has to satisfy: single line, no exotic
+ * whitespace, no padding, and at least one letter or digit so it says something.
+ * Shared by `label` and `title`, which differ only in their ceiling and in the code
+ * they refuse under.
+ *
+ * Exported because it is not really about *payloads*: the same rules govern the
+ * inbound form's own label and description (`src/form-request.js`), for the same
+ * reason — both are short strings a model composes and a person reads, and a string
+ * that can reverse its own rendering can lie about itself wherever it is shown. The
+ * bound is counted in code points so a non-BMP script does not silently get half the
+ * allowance an ASCII one gets. Callers map `'bad'` and `'too_long'` onto their own
+ * reason codes; this returns the problem, not the vocabulary.
  */
-function headingProblem(value, maxChars) {
+export function displayTextProblem(value, maxChars) {
   if (typeof value !== 'string' || value.length === 0) return 'bad';
   if ([...value].length > maxChars) return 'too_long';
   if (FORBIDDEN_CHARS.test(value)) return 'bad';
@@ -242,13 +250,13 @@ function headingProblem(value, maxChars) {
 }
 
 function validateLabel(label) {
-  const problem = headingProblem(label, MAX_LABEL_CHARS);
+  const problem = displayTextProblem(label, MAX_LABEL_CHARS);
   if (problem === 'too_long') return 'label_too_long';
   return problem ? 'bad_label' : null;
 }
 
 function validateTitle(title) {
-  const problem = headingProblem(title, MAX_TITLE_CHARS);
+  const problem = displayTextProblem(title, MAX_TITLE_CHARS);
   if (problem === 'too_long') return 'title_too_long';
   return problem ? 'bad_title' : null;
 }

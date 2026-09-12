@@ -310,6 +310,7 @@ async def create(
     ttl_seconds: Optional[int] = None,
     notice_platform: Optional[str] = None,
     payload_kind: Optional[str] = None,
+    form: Optional[Mapping[str, Any]] = None,
     socket_path: Optional[PathLike] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
@@ -323,6 +324,12 @@ async def create(
         request["notice_platform"] = notice_platform
     if payload_kind is not None:
         request["payload_kind"] = payload_kind
+    # Sent as one object, because on the wire it is one bag of untrusted display data
+    # with one trust boundary. It is validated before it gets here (drop/tools.py) and
+    # again by the broker, which is the authority; nothing in it is secret, so unlike
+    # `create_outbound_drop` this op stays safe to log and to retry.
+    if form:
+        request["form"] = dict(form)
     return await control_request(request, socket_path=socket_path, timeout=timeout)
 
 

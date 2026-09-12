@@ -119,12 +119,25 @@ class RecordingService:
         self._result = create_result
         self._sources = sources_module
 
-    async def create(self, origin, *, ttl_seconds, purpose="", session_key=""):
+    async def create(
+        self,
+        origin,
+        *,
+        ttl_seconds,
+        purpose="",
+        payload_kind="universal",
+        form=None,
+        session_key="",
+    ):
         srcs = self._sources
         self.calls.append(
             {
                 "ttl_seconds": ttl_seconds,
                 "purpose": purpose,
+                # Recorded so this seam can still show that the form descriptor is
+                # display data and the routing identity is not influenced by it.
+                "payload_kind": payload_kind,
+                "form": form,
                 "session_key": session_key,
                 "routing_tuple": tuple(origin.routing_tuple),
                 "context_tuple": srcs.routing_tuple_from_context() if srcs else None,

@@ -540,6 +540,42 @@ Two rendering rules complete it, and they are stronger than the schema:
 
 ## Known limitations tracked rather than fixed
 
+- **The form descriptor is authorized and bounded, but not cryptographically
+  bound — and it is copy, so it can still mislead.** A request may carry a short
+  label and description that the page renders above its inputs. Three separate
+  properties, which are easy to collapse into one another and should not be:
+  - **Capability authorization.** `POST /api/metadata`, which carries the
+    descriptor, is capability-authorized like every other field it returns: the
+    `x-handoff-capability` header is shape-checked, hashed, compared in constant
+    time and must name a live pending record. Only someone holding the link sees a
+    descriptor at all.
+  - **Transport integrity.** On the supported HTTPS deployment, TLS protects the
+    integrity of that response. The accepted plain-HTTP/loopback mode keeps its
+    existing, already-documented exposure to an active network attacker; the
+    descriptor is no more and no less exposed there than `expires_at` and the
+    `max_*` ceilings the page has always rendered beside it.
+  - **HPKE authenticated context.** What is bound end-to-end into `info` is the
+    envelope version, the suite, the handoff id and the capability hash. The
+    descriptor is **not** in `info`. It is delivered over the existing metadata
+    transport, at the same trust level as the other advisory display values.
+
+  The rendering defence is structural rather than cryptographic: the page writes
+  the descriptor with `textContent` into markup that already exists in the shipped
+  document, builds no node from it, sets no attribute from it and creates no
+  anchor, under a CSP with no `unsafe-inline`. A description containing markup
+  therefore renders as those characters, and it cannot alter the payload kind, the
+  ceilings, the expiry or where anything goes — the page's own promises about
+  expiry and secrecy sit outside the rewritable element for that reason.
+
+  **What that does not cover:** inert rendering prevents markup from *executing*;
+  it does nothing about prose that *misleads*. A description is model-authored text
+  shown to a person about to paste a credential, and it can still ask for the wrong
+  thing in plain words. What bounds that is the schema (one line, 300 code points,
+  no control characters or bidi overrides, no silent normalisation), the closed key
+  set, and the model-facing guidance to describe only what is already known.
+  Treating the descriptor as trustworthy content because it renders safely would be
+  the mistake.
+
 - **Durable sanitization is bounded at the wire, not at the model.** The claimed
   plaintext is kept out of `state.db`, the FTS index, the session log and any
   backup taken from them: the tool result the plugin hands Hermes carries an

@@ -62,6 +62,14 @@ registers no slash command and requires no Hermes core patch.
 - **One universal form.** The existing `/drop` and `request_private_input` flow
   creates one link where the sender chooses either private text or up to 5 files
   totaling 42 MiB. There is no separate file command or file-only link.
+- **A form that says what it wants.** A request may carry a short non-secret
+  description ("Upload the two config files for the staging deployment"), an
+  optional heading, and — when the requester genuinely knows — a payload mode and
+  an exact file count. The page then shows only the controls that apply and counts
+  the files against the expectation, with the broker enforcing both. All of it is
+  optional: ask for nothing and the universal both-lanes form is what the user
+  gets, unchanged. The copy is untrusted display data — written as text, never as
+  markup — and it can change nothing about the link's lane, limits or expiry.
 - **Private file spool.** Files are encrypted together in one HDROP2 container,
   claimed over the private framed socket, and atomically published as `0600` files
   beneath a `0700` spool. Hermes receives sanitized metadata and local paths only;

@@ -56,6 +56,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from . import form_request
 from . import journal as journal_mod
 from . import render
 
@@ -192,6 +193,8 @@ class DropService:
         *,
         ttl_seconds: int,
         purpose: str = "",
+        payload_kind: str = "universal",
+        form: Optional[Mapping[str, Any]] = None,
         session_key: str = "",
     ) -> Dict[str, Any]:
         """Mint a handoff, post its link into *origin*'s conversation, and arm.
@@ -216,7 +219,16 @@ class DropService:
         created = await self._control.create(
             ttl_seconds=int(ttl_seconds),
             notice_platform=render.renderer_for(origin.platform_name),
-            payload_kind="universal",
+            # `universal` unless the caller knows better. The model may now say so
+            # (drop/tools.py, `mode`), which supersedes the older rule that it must
+            # never predict the kind: an optional statement of something known is not
+            # the guess that rule was written to prevent, and the fallback for
+            # everything unknown is still this default.
+            payload_kind=payload_kind,
+            # Passed only when there is one. A request with no descriptor then makes
+            # exactly the call it always made, which is what keeps every caller that
+            # predates this -- and every client stub written against it -- unchanged.
+            **({} if form is None else {"form": form}),
             socket_path=self._socket_path,
         )
         if not created.get("ok"):
@@ -228,6 +240,12 @@ class DropService:
 
         drop_id = created.get("handoff_id") or ""
         notice = created.get("notice") or ""
+
+        refusal = self._guard_descriptor(created, payload_kind=payload_kind, form=form)
+        if refusal is not None:
+            # Before the post, for the reason below: nothing has been asked of anyone
+            # yet, and the minted handoff lapses at its own TTL unseen.
+            return refusal
 
         refusal = self._guard_claimability(drop_id, created)
         if refusal is not None:
@@ -278,6 +296,43 @@ class DropService:
             "expires_at_ms": expires_at_ms,
             "expires_in_seconds": max(0, int(expires_at_ms / 1000.0 - self._clock())),
             "note": RECEIPT_NOTE,
+        }
+
+    @staticmethod
+    def _guard_descriptor(
+        created: Mapping[str, Any],
+        *,
+        payload_kind: str,
+        form: Optional[Mapping[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Will this broker actually honour what was asked for?
+
+        Asked only when something WAS asked for. A request with no descriptor and no
+        mode is the universal drop this plugin has always minted, so there is nothing
+        to guard and every existing caller passes straight through.
+
+        When there is something to guard, absence of the capability is refused rather
+        than degraded. A broker predating the descriptor accepts the `form` key by
+        ignoring it: it mints the drop, serves the old generic page, and takes any
+        number of files at all. The user would then be shown "send me something" for a
+        request that named two specific files, and the requester would never find out
+        -- which is a worse outcome than a refusal the model can report and retry.
+
+        `payload_kind` is deliberately part of the question even though `payload_kinds`
+        has advertised text/files/universal since U1: an old broker would mint a real
+        `files` drop correctly but still drop the descriptor, and a typed request whose
+        copy and count vanished is not the request that was made.
+        """
+        if form is None and payload_kind == "universal":
+            return None
+        if form_request.broker_enforces_descriptor(created):
+            return None
+        return {
+            "error": ERROR_BROKER_UNAVAILABLE,
+            "detail": (
+                "this broker cannot render a described form; retry without mode, "
+                "expect_files, description and label"
+            ),
         }
 
     @staticmethod

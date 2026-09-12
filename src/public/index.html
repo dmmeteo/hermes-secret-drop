@@ -14,12 +14,31 @@
 <section id="form" hidden>
 <div class="copy">
 <p class="eyebrow">Private drop</p>
-<h1>Send privately to Hermes</h1>
-<p>Send private text or files for your current task. This page closes in <strong id="ttl" role="timer">–:––</strong>, and nothing you enter will be posted to chat.</p>
+<!-- Three pieces of inbound copy can change, and they are deliberately three
+     elements rather than one, because they do not come from the same place.
+
+     `form-title` and `form-lede-text` are *built-in English chrome*. The page picks
+     between a fixed set of strings based on the drop's payload kind; a requester
+     never supplies them, and `form-title` falls back to a label only when one was
+     minted. `request-description` is the only element a requester's own words reach.
+
+     What stays out of all three is load-bearing: the expiry countdown (`ttl`) and the
+     "nothing you enter will be posted to chat" sentence live in `form-lede` OUTSIDE
+     the rewritable span, so no descriptor can restate, move or suppress what the page
+     promises about expiry and secrecy. `ttl` is an element the countdown holds a
+     reference to -- rewriting the whole paragraph would destroy it and stop the clock.
+
+     Every one of them is written with textContent by src/client/app.js and is never
+     built from a string. `request-description` stays hidden, and the layout stays
+     exactly as it is today, when no descriptor was minted -- which is every drop that
+     predates this. -->
+<h1 id="form-title">Send privately to Hermes</h1>
+<p id="form-lede"><span id="form-lede-text">Send private text or files for your current task.</span> This page closes in <strong id="ttl" role="timer">–:––</strong>, and nothing you enter will be posted to chat.</p>
+<p id="request-description" class="request-note" hidden></p>
 </div>
 <textarea id="secret" aria-label="Private details" placeholder="Password, token, credentials, or a small config…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter"></textarea>
 <section id="file-panel" class="file-panel" aria-labelledby="files-label">
-<p id="files-label"><strong>Add files</strong> <span class="meta">Up to 5 files, 42 MiB total</span></p>
+<p id="files-label"><strong id="files-heading">Add files</strong> <span class="meta" id="files-limits">Up to 5 files, 42 MiB total</span></p>
 <label id="drop-zone" class="drop-zone" for="files">Choose files or drag them here</label>
 <input id="files" type="file" multiple hidden>
 <ul id="file-list" class="file-list" aria-live="polite"></ul>

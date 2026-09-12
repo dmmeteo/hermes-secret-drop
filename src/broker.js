@@ -136,6 +136,7 @@ import {
   fileContainerCeiling,
   narrowFileLimits,
 } from './file-container.js';
+import { validateFormRequest } from './form-request.js';
 import { createOutboundDrops } from './outbound-drop.js';
 import {
   AEAD_TAG_BYTES,
@@ -626,6 +627,28 @@ export function createBroker(config, logger = console) {
         if (record.containerFailures >= config.maxAeadFailures) destroy(record, 'container_failures');
         return UNAVAILABLE;
       }
+
+      // The exact count, when the requester asked for one. Checked here, on the
+      // decoded container, because that is the only place the real count exists: the
+      // browser's own gate is a convenience for the sender and is not evidence of
+      // anything, and the count is inside the ciphertext until this point.
+      //
+      // Charged to `containerFailures` like any other authenticated-but-wrong
+      // container, and for the same reason: reaching this line costs a full HPKE open
+      // plus a SHA-256 pass over every byte, and a caller holding the capability must
+      // not be able to buy that arbitrarily often against one drop. Nothing is
+      // consumed -- the drop stays pending and a correct submission still wins -- so
+      // an honest sender who picked the wrong number simply tries again.
+      if (record.expectFiles !== null && fileCount !== record.expectFiles) {
+        zeroize(plaintext);
+        record.containerFailures += 1;
+        logger.warn?.(
+          `handoff container count refused hid=${record.handoffId} ` +
+            `expected=${record.expectFiles} got=${fileCount} count=${record.containerFailures}`,
+        );
+        if (record.containerFailures >= config.maxAeadFailures) destroy(record, 'container_failures');
+        return UNAVAILABLE;
+      }
     }
 
     // Synchronous single-use gate: no await between check and mutation.
@@ -706,7 +729,7 @@ export function createBroker(config, logger = console) {
      * may never carry a file at all, and pre-reserving would let four idle
      * text-capable links exhaust a budget for bytes nobody sent.
      */
-    async create({ ttlSeconds = config.ttlSeconds, payloadKind = PAYLOAD_KIND_TEXT, maxFiles } = {}) {
+    async create({ ttlSeconds = config.ttlSeconds, payloadKind = PAYLOAD_KIND_TEXT, maxFiles, form } = {}) {
       if (!PAYLOAD_KINDS.includes(payloadKind)) return INVALID_REQUEST;
       if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0 || ttlSeconds > config.maxTtlSeconds) {
         return INVALID_REQUEST;
@@ -721,6 +744,19 @@ export function createBroker(config, logger = console) {
       // too: they are half of what its metadata advertises, and the ceiling its file
       // lane is measured against.
       const limits = isFiles || isUniversal ? narrowFileLimits(fileLimits, { maxFiles }) : null;
+      // Validated here, against the limits this drop actually ended up with rather
+      // than against the ones that were asked for: an exact count has to be checked
+      // against the narrowed ceiling, or a descriptor could name a count the drop
+      // would then refuse every time. Before the reservation on purpose — a bad
+      // descriptor must not take file budget on its way to being refused, nor mint
+      // anything. The control seam validates first and reports which rule broke; this
+      // is the authority, and it is what an in-process caller meets too.
+      const descriptor = validateFormRequest({
+        form,
+        payloadKind,
+        maxFiles: limits === null ? undefined : limits.maxFiles,
+      });
+      if (!descriptor.ok) return INVALID_REQUEST;
       const { maxPayloadBytes, envelopeVersion } = payloadShapeFor(payloadKind, limits);
       // The reservation is the ceiling the broker will actually enforce on this
       // drop's plaintext, so the two can never disagree. A universal drop has no
@@ -766,6 +802,22 @@ export function createBroker(config, logger = console) {
            * whether it has been submitted to yet.
            */
           mintedKind: payloadKind,
+          /**
+           * The browser-facing descriptor, or null. Display data and nothing else:
+           * it is echoed to the page that holds this drop's capability, and it is
+           * deliberately NOT `purpose` — that one is the journal's, never leaves the
+           * plugin, and has no transport to a browser. Keeping the two apart is what
+           * stops an audit label becoming page copy, or page copy becoming an audit
+           * record, by accident.
+           */
+          form: descriptor.form,
+          /**
+           * The exact file count this drop will accept, or null for "up to
+           * `fileLimits.maxFiles`". Lifted out of the descriptor because it is the
+           * one field in it that is *enforced* rather than rendered, and a check
+           * reaching into display data for its rule would be easy to lose.
+           */
+          expectFiles: descriptor.form?.expect_files ?? null,
           fileLimits: limits,
           maxPayloadBytes,
           envelopeVersion,
@@ -853,6 +905,18 @@ export function createBroker(config, logger = console) {
         suite: SUITE_ID,
         pk: bytesToBase64Url(record.publicKeyBytes),
         payload_kind: record.payloadKind,
+        // Present only when this drop was minted with one, so a page can tell "no
+        // descriptor" from "an empty descriptor" without a sentinel, and every drop
+        // that predates the feature answers byte-identically to how it always did.
+        //
+        // What this is, precisely: display data delivered over the existing metadata
+        // transport to a caller that has already proved it holds this drop's
+        // capability. It is NOT bound into the HPKE `info` the envelope is sealed
+        // under -- that binds version, suite, handoff id and the capability hash --
+        // so it sits at exactly the trust level of the `max_*` numbers and
+        // `expires_at` alongside it. The page renders it inertly and it can change
+        // nothing about the lane, the ceilings or the deadline; see SECURITY.md.
+        ...(record.form === null ? {} : { form: record.form }),
         expires_at: record.expiresAt,
         // The broker's own clock, so the page can render a countdown without
         // trusting the device's. Creation time is deliberately not published:

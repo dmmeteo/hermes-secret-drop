@@ -43,6 +43,7 @@ import logging
 from typing import Any, Dict, Mapping, Optional
 
 from . import bridge as bridge_mod
+from . import form_request as form_request_mod
 from . import origin as origin_module
 from . import render
 from . import safe_errors
@@ -93,6 +94,52 @@ def _parse_purpose(raw: Any) -> Any:
     return purpose
 
 
+#: The payload kind a request with no `mode` is minted as -- the universal both-lanes
+#: link, which is what every caller got before `mode` existed and what "I do not know"
+#: still means.
+DEFAULT_PAYLOAD_KIND = "universal"
+
+#: The kinds a model may actually ask for, and what each maps to on the wire.
+_MODES = {"text": "text", "files": "files"}
+
+
+def _parse_mode(raw: Any) -> Any:
+    """The payload kind for this request, or an ``invalid_request`` dict.
+
+    Absent means universal, which is the documented fallback and not a guess. An
+    unknown value is refused rather than quietly read as universal: a model that asked
+    for a mode and silently got the other behaviour was misheard about the one thing
+    it said.
+    """
+    if raw is None:
+        return DEFAULT_PAYLOAD_KIND
+    if not isinstance(raw, str) or raw not in _MODES:
+        return _invalid("mode must be 'text' or 'files', or omitted when you do not know")
+    return _MODES[raw]
+
+
+def _parse_form(args: Mapping[str, Any], payload_kind: str) -> Any:
+    """The browser-facing descriptor, or an ``invalid_request`` dict.
+
+    Assembled from the flat tool arguments and validated here, before the origin is
+    resolved and long before anything is minted: a descriptor the page could not render
+    must not cost a handoff on its way to being refused, and there is no destroy op to
+    take one back.
+
+    The refusal names the rule and never the value -- it becomes a tool result, which
+    reaches the model's context and from there durable session state.
+    """
+    try:
+        return form_request_mod.build_form_request(
+            label=args.get("label"),
+            description=args.get("description"),
+            expect_files=args.get("expect_files"),
+            payload_kind=payload_kind,
+        )
+    except form_request_mod.FormRefused as refused:
+        return _invalid(refused.detail)
+
+
 def _resolved_origin(runner: Any) -> Any:
     if runner is _RUNNER_UNSET:
         return origin_module.resolve_origin()
@@ -130,6 +177,14 @@ def request_private_input(
     if isinstance(purpose, dict):
         return purpose
 
+    payload_kind = _parse_mode(args.get("mode"))
+    if isinstance(payload_kind, dict):
+        return payload_kind
+
+    form = _parse_form(args, payload_kind)
+    if isinstance(form, dict) and "error" in form:
+        return form
+
     resolved = _resolved_origin(runner)
     if isinstance(resolved, dict):
         return resolved
@@ -147,6 +202,8 @@ def request_private_input(
                 resolved,
                 ttl_seconds=minutes * 60,
                 purpose=purpose,
+                payload_kind=payload_kind,
+                form=form,
                 session_key=sources.session_key_from_context(),
             ),
             timeout=bridge_mod.CREATE_TIMEOUT_SECONDS,

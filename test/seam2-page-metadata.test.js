@@ -46,7 +46,11 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
 
     it('carries the Hermes Drop user-facing branding', () => {
       assert.match(html, /<title>Hermes Drop<\/title>/, 'product name');
-      assert.match(html, /<h1>Send privately to Hermes<\/h1>/, 'public heading');
+      // The heading carries an id because the page rewrites it per payload kind, and
+      // replaces it outright when a drop was minted with a label. What is pinned here
+      // is the SHIPPED default: the generic wording a drop with no descriptor still
+      // gets, which is every drop that predates the descriptor.
+      assert.match(html, /<h1 id="form-title">Send privately to Hermes<\/h1>/, 'public heading');
       assert.match(html, />Send to Hermes</, 'the send action keeps its wording');
       assert.ok(!html.includes('Hermes is ready.'), 'the old heading is gone');
       assert.match(html, /<h1>This link is unavailable<\/h1>/, 'unavailable heading');

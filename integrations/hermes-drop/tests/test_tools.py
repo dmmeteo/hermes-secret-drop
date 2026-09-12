@@ -68,9 +68,17 @@ class FakeControl:
     """The broker's answers, without the broker. The real one is exercised in
     ``test_service.py``; here the subject is the handler and the crossing."""
 
-    def __init__(self, *, claim_answer=None):
+    def __init__(self, *, claim_answer=None, form_protocol=None):
         self.claim_answer = claim_answer
         self.calls: list = []
+        # The descriptor and the kind are recorded beside `calls` rather than inside
+        # it, so the existing call-shape assertions keep comparing against the exact
+        # dict they always did.
+        self.forms: list = []
+        self.payload_kinds: list = []
+        # None means a broker that predates the descriptor: it answers without
+        # `form_protocol`, which is how a caller learns it would silently drop one.
+        self.form_protocol = form_protocol
 
     async def create(
         self,
@@ -78,12 +86,16 @@ class FakeControl:
         ttl_seconds=None,
         notice_platform=None,
         payload_kind=None,
+        form=None,
         socket_path=None,
         timeout=None,
     ):
         self.calls.append({"op": "create", "ttl_seconds": ttl_seconds})
+        self.forms.append(form)
+        self.payload_kinds.append(payload_kind)
         return {
             "ok": True,
+            **({} if self.form_protocol is None else {"form_protocol": self.form_protocol}),
             "handoff_id": "H" * 22,
             "url": "http://127.0.0.1:8080/#Q2FwYWJpbGl0eVN0cmluZ0FB",
             "expires_at": int(time.time() * 1000) + (ttl_seconds or 1800) * 1000,
@@ -664,3 +676,172 @@ def test_no_gateway_lifecycle_hook_exists_to_wire_shutdown_to() -> None:
     # And the session hooks that do exist are not substitutes: they fire per agent
     # session, not per process.
     assert {"on_session_end", "on_session_finalize"} <= VALID_HOOKS
+
+
+# --- the form descriptor ----------------------------------------------------------
+#
+# The model-facing half of the adaptive form. What is pinned here is the handler's
+# behaviour around it: that an unknown mode or an unrenderable descriptor is refused
+# BEFORE anything is minted, that a broker which would silently drop a descriptor is
+# refused before a link is posted, and that a call with none of the new arguments makes
+# exactly the call it always made.
+
+
+def test_no_new_arguments_mints_the_universal_drop_it_always_did(
+    tools, turn, service_for, gateway_loop
+):
+    """Every existing caller takes this path, and it must be unchanged."""
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl()
+    result = tools.request_private_input({}, runner=runner, service=service_for(control))
+
+    assert "error" not in result
+    assert control.payload_kinds == ["universal"]
+    assert control.forms == [None], "no descriptor was invented"
+
+
+def test_a_known_mode_and_description_reach_the_broker(tools, turn, service_for, gateway_loop):
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=1)
+    result = tools.request_private_input(
+        {
+            "mode": "files",
+            "expect_files": 2,
+            "description": "Upload the two staging config files.",
+            "label": "Staging config",
+        },
+        runner=runner,
+        service=service_for(control),
+    )
+
+    assert "error" not in result, result
+    assert control.payload_kinds == ["files"]
+    assert control.forms == [
+        {
+            "label": "Staging config",
+            "description": "Upload the two staging config files.",
+            "expect_files": 2,
+        }
+    ]
+
+
+def test_an_unknown_mode_is_refused_and_mints_nothing(tools, turn, service_for, gateway_loop):
+    # Refused rather than quietly read as universal: a model that asked for a mode and
+    # silently got the other behaviour was misheard about the one thing it said.
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=1)
+    result = tools.request_private_input(
+        {"mode": "either"}, runner=runner, service=service_for(control)
+    )
+
+    assert result["error"] == "invalid_request"
+    assert control.calls == [], "a handoff was minted on the way to a refusal"
+
+
+def test_an_unrenderable_descriptor_is_refused_before_anything_is_minted(
+    tools, turn, service_for, gateway_loop
+):
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=1)
+    result = tools.request_private_input(
+        {"description": "a" * 301}, runner=runner, service=service_for(control)
+    )
+
+    assert result["error"] == "invalid_request"
+    assert "description_too_long" in result["detail"]
+    assert control.calls == []
+
+
+def test_an_exact_count_without_files_mode_is_refused(tools, turn, service_for, gateway_loop):
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=1)
+    result = tools.request_private_input(
+        {"expect_files": 2}, runner=runner, service=service_for(control)
+    )
+
+    assert result["error"] == "invalid_request"
+    assert "expect_files_not_allowed" in result["detail"]
+    assert control.calls == []
+
+
+def test_a_refusal_names_the_rule_and_never_the_models_copy(
+    tools, turn, service_for, gateway_loop
+):
+    # The detail becomes a tool result, which reaches the model's context and from
+    # there durable session state.
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    secretish = "CORRECT-HORSE-BATTERY-STAPLE"
+    result = tools.request_private_input(
+        {"label": f"{secretish}  {secretish}"},
+        runner=runner,
+        service=service_for(FakeControl(form_protocol=1)),
+    )
+
+    assert result["error"] == "invalid_request"
+    assert secretish not in json.dumps(result)
+
+
+def test_a_broker_that_would_silently_drop_the_descriptor_is_refused_before_posting(
+    tools, turn, service_for, gateway_loop
+):
+    # A broker predating this accepts `form` by ignoring it: it would mint the drop,
+    # serve the old generic page and take any number of files. The user would be asked
+    # the wrong question and the requester would never find out, so absence of the
+    # capability is a refusal rather than a downgrade.
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=None)
+    result = tools.request_private_input(
+        {"mode": "files", "expect_files": 2},
+        runner=runner,
+        service=service_for(control),
+    )
+
+    assert result["error"] != "ok"
+    assert "error" in result
+    assert control.calls, "the guard runs after create, which is where the answer is"
+
+
+def test_the_same_old_broker_still_serves_a_request_with_no_descriptor(
+    tools, turn, service_for, gateway_loop
+):
+    # The guard asks only when something was asked for. Nothing was, so nothing is
+    # refused, and the universal drop this plugin has always minted still works.
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    result = tools.request_private_input(
+        {}, runner=runner, service=service_for(FakeControl(form_protocol=None))
+    )
+    assert "error" not in result
+
+
+def test_the_descriptor_is_not_the_journal_label(plugin, tools, turn, gateway_loop, tmp_path):
+    """`purpose` and the descriptor are opposites and must not leak into each other.
+
+    `purpose` is the audit journal's and never reaches a browser; the descriptor is the
+    browser's and must never reach the journal. Nothing enforces that except this.
+    """
+    runner, _adapter = turn(Platform.TELEGRAM, loop=gateway_loop)
+    control = FakeControl(form_protocol=1)
+    journal_root = tmp_path / "hermes-drop"
+    service = plugin.drop.service.DropService(
+        journal=plugin.drop.journal.DropJournal(root=journal_root),
+        control=control,
+        waiters=NullWaiters(),
+    )
+    tools.request_private_input(
+        {
+            "purpose": "staging deploy token",
+            "mode": "files",
+            "expect_files": 2,
+            "description": "Upload the two staging config files.",
+            "label": "Staging config",
+        },
+        runner=runner,
+        service=service,
+    )
+
+    written = "\n".join(
+        path.read_text() for path in journal_root.rglob("*") if path.is_file()
+    )
+    assert "staging deploy token" in written, "the audit label is still journalled"
+    assert "Upload the two staging config files." not in written
+    assert "Staging config" not in written

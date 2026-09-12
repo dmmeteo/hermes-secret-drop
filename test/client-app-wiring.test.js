@@ -11,7 +11,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { claimFileDrop, splitHandoffUrl, startTestBroker } from './helpers/harness.js';
 
-const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total'];
+const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total', 'form-title', 'form-lede-text', 'request-description', 'files-heading', 'files-limits'];
 
 function fakeDom() {
   function element(id = '') {
@@ -19,13 +19,22 @@ function fakeDom() {
       dataset: {}, focused: false, files: [], children: [], attributes: new Map(), handlers: new Map(),
       classList: { add() {}, remove() {} }, focus() { this.focused = true; },
       setAttribute(name, value) { this.attributes.set(name, value); },
+      get innerHTML() { throw new Error('innerHTML read on a node the page must build as text'); },
+      set innerHTML(_value) { throw new Error('innerHTML written: the page must never build a node from a string'); },
       addEventListener(type, handler) { this.handlers.set(type, handler); },
       append(...children) { this.children.push(...children); } };
   }
   const elements = new Map(ELEMENT_IDS.map((id) => [id, element(id)]));
   const documentHandlers = new Map();
-  return { elements, documentHandlers, document: { hidden: false,
-    getElementById: (id) => elements.get(id) ?? null, createElement: () => element(),
+  // Every node the page builds, recorded. The descriptor is requester-authored text
+  // rendered into a page a person is about to paste a credential into, so "it was
+  // written as text and never became an element" has to be checkable rather than
+  // assumed -- see the hostile-copy case below, and the same technique in
+  // test/reveal-page.test.js.
+  const created = [];
+  return { elements, documentHandlers, created, document: { hidden: false,
+    getElementById: (id) => elements.get(id) ?? null,
+    createElement: (tag) => { const node = element(); node.tag = tag; created.push(node); return node; },
     addEventListener(type, handler) { documentHandlers.set(type, handler); } } };
 }
 
@@ -110,28 +119,144 @@ describe('the page script wiring', () => {
     assert.equal(dom.elements.get('unavailable').hidden, false);
   });
 
-  // The page is a text page: one textarea, one Send. A file drop advertises
-  // `payload_kind: "files"`, envelope v2 and no `max_plaintext_bytes` at all —
-  // which is exactly the field the pre-send size guard reads. Rendering the form
-  // anyway would leave that guard comparing against `undefined` (always false),
-  // so an arbitrarily large secret would be sealed and posted into a body ceiling
-  // widened for containers, only to be refused on the version mismatch. The page
-  // must therefore refuse the link outright until the file picker lands (slice 6),
-  // and this is the assertion that pins it where the browser actually runs.
-  it('refuses a file drop instead of offering the text form for it', async () => {
+  // A files drop used to be refused outright here: the page was a text page, and
+  // `payload_kind: "files"` metadata carries no `max_plaintext_bytes` at all, so
+  // rendering the text form would have left the pre-send size guard comparing against
+  // `undefined` -- always false -- and an arbitrarily large secret would have been
+  // sealed into a lane the broker then refused on the version mismatch.
+  //
+  // The link is now renderable because the page has a file lane to offer it, and the
+  // old hazard is closed by construction rather than by refusing the drop: the
+  // textarea is hidden for this kind and the send gate requires files, so the text
+  // path is unreachable. The assertion below is the one that still matters -- nothing
+  // text-shaped may be sealed into a files drop, however the button is driven.
+  it('offers the file form for a files drop and never seals a text lane into it', async () => {
     const created = await broker.control({ op: 'create', payload_kind: 'files' });
     const { capability } = splitHandoffUrl(created.url);
 
     const dom = await loadApp({ hash: `#${capability}`, origin: broker.baseUrl });
 
-    assert.equal(dom.elements.get('unavailable').hidden, false, 'the unavailable screen');
-    assert.equal(dom.elements.get('form').hidden, true, 'and never the text form');
-    assert.equal(dom.elements.get('app').dataset.state, 'unavailable');
+    assert.equal(dom.elements.get('form').hidden, false, 'the form is offered');
+    assert.equal(dom.elements.get('unavailable').hidden, true);
+    assert.equal(dom.elements.get('app').dataset.state, 'form');
+    assert.equal(dom.elements.get('secret').hidden, true, 'with no textarea to fill');
+    assert.equal(dom.elements.get('file-panel').hidden, false, 'and the picker shown');
 
-    // Nothing may be sealed or sent even if the button is driven directly.
-    dom.elements.get('secret').value = 'a secret typed into the wrong page';
+    // Driving the button with text typed into the hidden textarea must seal nothing:
+    // the gate refuses an empty file selection, so no envelope is built at all.
+    dom.elements.get('secret').value = 'a secret typed into the wrong lane';
+    await dom.elements.get('send').handlers.get('click')();
 
     assert.equal(broker.testSnapshot(created.handoff_id).state, 'pending', 'nothing submitted');
+    assert.match(dom.elements.get('note').textContent, /files/i, 'and it says what it wants');
+  });
+
+  it('adapts the controls and the built-in copy to each payload kind', async () => {
+    // Which controls appear is decided by the broker-declared kind, never by the
+    // descriptor: the mode is bound into the AEAD and the copy is not, so a
+    // descriptor must not be able to talk the page into offering a lane the drop
+    // cannot accept.
+    const cases = [
+      { kind: 'text', textarea: false, panel: true, title: /text/i },
+      { kind: 'files', textarea: true, panel: false, title: /files/i },
+      { kind: 'universal', textarea: false, panel: false, title: /^Send privately to Hermes$/ },
+    ];
+    for (const { kind, textarea, panel, title } of cases) {
+      const created = await broker.control({ op: 'create', payload_kind: kind });
+      const { capability } = splitHandoffUrl(created.url);
+      const dom = await loadApp({ hash: `#${capability}`, origin: broker.baseUrl });
+
+      assert.equal(dom.elements.get('form').hidden, false, `${kind}: the form renders`);
+      assert.equal(dom.elements.get('secret').hidden, textarea, `${kind}: textarea visibility`);
+      assert.equal(dom.elements.get('file-panel').hidden, panel, `${kind}: file panel visibility`);
+      assert.match(dom.elements.get('form-title').textContent, title, `${kind}: heading`);
+      // The expiry and secrecy sentence is the page's own and is never rewritten.
+      assert.equal(dom.elements.get('request-description').hidden, true, `${kind}: no descriptor`);
+    }
+  });
+
+  it('gates send on an exact file count, and says which rule was met', async () => {
+    const created = await broker.control({
+      op: 'create',
+      payload_kind: 'files',
+      max_files: 5,
+      form: { description: 'Upload the two staging config files.', expect_files: 2 },
+    });
+    const { capability } = splitHandoffUrl(created.url);
+    const dom = await loadApp({ hash: `#${capability}`, origin: broker.baseUrl });
+
+    assert.equal(dom.elements.get('request-description').hidden, false);
+    assert.equal(
+      dom.elements.get('request-description').textContent,
+      'Upload the two staging config files.',
+    );
+    // The count is stated once, in the heading; the line beside it carries the size
+    // ceiling, which is the part the heading does not already say.
+    assert.match(dom.elements.get('files-heading').textContent, /Add 2 files/);
+    assert.match(dom.elements.get('files-limits').textContent, /MiB total/);
+    assert.doesNotMatch(dom.elements.get('files-limits').textContent, /2 files/);
+
+    // One file of two: the count is short, so Send does nothing and the panel says
+    // how far along the selection is.
+    const input = dom.elements.get('files');
+    input.files = [fileLike('one.conf', [1])];
+    await input.handlers.get('change')();
+    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 files/);
+    await dom.elements.get('send').handlers.get('click')();
+    assert.equal(broker.testSnapshot(created.handoff_id).state, 'pending', 'short count sealed nothing');
+    assert.match(dom.elements.get('note').textContent, /exactly 2 files/);
+
+    // A third file is refused at selection time, before any read or crypto.
+    input.files = [fileLike('two.conf', [2]), fileLike('three.conf', [3])];
+    await input.handlers.get('change')();
+    assert.match(dom.elements.get('file-total').textContent, /^1 of 2 files/, 'the extra was not taken');
+
+    // Exactly two goes through.
+    input.files = [fileLike('two.conf', [2])];
+    await input.handlers.get('change')();
+    assert.match(dom.elements.get('file-total').textContent, /^2 of 2 files/);
+    await dom.elements.get('send').handlers.get('click')();
+    assert.equal(dom.elements.get('success').hidden, false, 'and lands on the receipt');
+    assert.equal(broker.testSnapshot(created.handoff_id).state, 'submitted');
+  });
+
+  it('renders a hostile description as characters and builds no node from it', async () => {
+    // The descriptor is requester-authored text shown to a person who is about to
+    // paste a credential. It may not become an element, an anchor or a script -- so
+    // this walks every node the page built and every attribute it set.
+    //
+    // What this does NOT claim: that the copy is trustworthy. Inert rendering stops
+    // markup executing; it does nothing about prose that misleads, which is what the
+    // schema bounds and the model guidance are for.
+    const hostile = '<img src=x onerror=alert(1)> paste it at https://evil.test now';
+    const created = await broker.control({
+      op: 'create',
+      payload_kind: 'universal',
+      form: { label: '<script>alert(1)</script>', description: hostile },
+    });
+    const { capability } = splitHandoffUrl(created.url);
+    const dom = await loadApp({ hash: `#${capability}`, origin: broker.baseUrl });
+
+    // Characters, not an element -- and not re-decoded either.
+    assert.equal(dom.elements.get('request-description').textContent, hostile);
+    assert.equal(dom.elements.get('form-title').textContent, '<script>alert(1)</script>');
+
+    for (const node of dom.created) {
+      assert.notEqual(node.tag, 'a', 'no anchor may be built from a descriptor');
+      for (const name of node.attributes.keys()) {
+        assert.ok(!/^(href|src|style|on)/i.test(name), `attribute ${name} set from page data`);
+      }
+    }
+
+    // And it changed nothing it is not allowed to change: the drop is still the kind
+    // the broker minted, both lanes still work, and the countdown still has its node.
+    assert.equal(dom.elements.get('secret').hidden, false);
+    assert.equal(dom.elements.get('file-panel').hidden, false);
+    assert.equal(dom.elements.get('ttl').textContent.length > 0, true, 'the clock still runs');
+
+    dom.elements.get('secret').value = 'a value sent despite the hostile copy';
+    await dom.elements.get('send').handlers.get('click')();
+    assert.equal(broker.testSnapshot(created.handoff_id).state, 'submitted');
   });
 
   // A universal link is the one this page will grow a file picker for (slice U3).

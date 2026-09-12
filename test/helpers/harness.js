@@ -56,9 +56,10 @@ export function decodeBase64Url(value) {
  * client sealer the browser bundle ships — so nothing here agrees with the broker
  * by construction.
  */
-export async function createFileDrop(broker, { ttlSeconds = 120, maxFiles } = {}) {
+export async function createFileDrop(broker, { ttlSeconds = 120, maxFiles, form } = {}) {
   const request = { op: 'create', payload_kind: 'files', ttl_seconds: ttlSeconds };
   if (maxFiles !== undefined) request.max_files = maxFiles;
+  if (form !== undefined) request.form = form;
   const created = await broker.control(request);
   if (!created.ok) return { created, capability: null, metadata: null };
 
@@ -106,9 +107,10 @@ export function declarationFor(envelope) {
  * Everything goes through the production paths, so nothing here agrees with the
  * broker by construction.
  */
-export async function createUniversalDrop(broker, { ttlSeconds = 120, maxFiles } = {}) {
+export async function createUniversalDrop(broker, { ttlSeconds = 120, maxFiles, form } = {}) {
   const request = { op: 'create', payload_kind: 'universal', ttl_seconds: ttlSeconds };
   if (maxFiles !== undefined) request.max_files = maxFiles;
+  if (form !== undefined) request.form = form;
   const created = await broker.control(request);
   if (!created.ok) return { created, capability: null, metadata: null };
 

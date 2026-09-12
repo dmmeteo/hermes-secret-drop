@@ -44,6 +44,32 @@ Call `request_private_input` with a short, non-secret `purpose` (a label for
 the audit journal, e.g. `deploy token`, `staging DB password`). That posts a
 one-shot encrypted form into **this** conversation and returns immediately.
 
+### Say what you are asking for
+
+The form is a web page the user opens on their own. By default it shows a text
+box **and** a file picker and lets them choose — which is right when you do not
+know what they are about to send, and unhelpful when you do.
+
+Four optional arguments make it specific. Use them **only for what you already
+know from the conversation**:
+
+| Argument | Use it when | Example |
+|---|---|---|
+| `description` | almost always — one short sentence telling the user what to paste or upload | `Paste the staging deploy token from 1Password.` |
+| `label` | a heading would help them recognise the request | `Staging deploy token` |
+| `mode` | you know it is text (`text`) or files (`files`) | `files` |
+| `expect_files` | they named a number, with `mode: files` | `2`, for "both config files" |
+
+**Omit anything you are guessing at.** A wrong `mode` takes a lane away from
+the user: `mode: text` means they cannot attach the file they meant to send.
+No `mode` is the universal form, which always works — it is the fallback, not
+a failure.
+
+Write `description` in the language of the conversation. It is plain text, one
+line, and the user reads it next to an input they are about to paste a
+credential into, so: no secrets in it, no URLs, no markup, and nothing that
+pressures them. Say what you need and stop.
+
 Then stop and wait. You are notified when the form is used; that notification
 carries a `drop_id`. Only then call `claim_private_input` with it. One claim
 only — the payload is destroyed after.

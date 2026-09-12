@@ -123,6 +123,23 @@
           "type": "number",
           "optional": true,
           "note": "Only meaningful with payload_kind `files` or `universal`, and refused with invalid_request on a text drop rather than ignored. A positive integer that may only *narrow* the operator's HANDOFF_MAX_FILES; a larger value is clamped down to it. Narrowing the count does not reduce the reservation, because one file may still be the whole per-drop byte total."
+        },
+        "form": {
+          "type": "object",
+          "optional": true,
+          "keys": [
+            "label",
+            "description",
+            "expect_files"
+          ],
+          "bounds": {
+            "max_label_chars": 80,
+            "max_description_chars": 300
+          },
+          "note": "Optional, bounded, NON-SECRET display copy describing the input being asked for, so the page can say what it wants instead of showing the same generic form for every request. `label` replaces the form's heading; `description` is one short sentence rendered above the inputs; `expect_files` is the exact number of files expected. All three are optional and absence changes nothing: a caller that sends no `form` gets exactly the page it always got, and the key is omitted from `/api/metadata` entirely rather than sent as an empty object. Refused with invalid_request -- minting nothing -- when it is not an object, when it is `{}`, when it carries a key not in `keys`, or when a value breaks a rule; the refusal carries a `reason` code from `form_request.reasons` and never the offending string. Bounds are counted in Unicode CODE POINTS, so a non-BMP script does not silently get half the allowance an ASCII one gets.",
+          "text_rules": "`label` and `description` carry no Unicode control or format character (\\p{C}), no line or paragraph separator, no whitespace other than a plain U+0020 space, no leading or trailing whitespace and no double space, and must contain at least one letter or digit. Newlines are refused in both: this is single-paragraph copy. The rules are the ones `outbound_payload.text_rules` states and they exist for the same reason -- the bidi overrides are why it is strict rather than cosmetic, because copy that can reverse its own rendering can read as one sentence beside the input a person is about to paste a credential into. Nothing is normalised: a value that breaks a rule is refused, never repaired, because a collapsed or trimmed string is not the string the caller composed.",
+          "expect_files_note": "Only meaningful with payload_kind `files`, and refused with invalid_request on `text` and `universal` rather than ignored -- on the same terms `max_files` is already refused on a text drop. Exactness is a claim about a request whose shape is known, and a universal drop is by definition one whose shape is not: the sender still chooses the lane. Unlike `max_files`, which may narrow silently because a narrowed upper bound is still true, a count above the drop's effective `max_files` is REFUSED rather than clamped: a clamped exact count would be a different request from the one that was made. Absence means the drop's existing upper bound -- the page renders 'up to N files' -- and never a fabricated exactness. Enforced by the broker on the DECODED container at submit: a submission carrying the wrong number is refused with the uniform `unavailable`, consumes nothing, leaves the drop pending and claimable, and is charged to the same bounded failure budget a refused container is.",
+          "trust": "Display data, and untrusted. It reaches only a caller that has already proved it holds the drop's capability (`/api/metadata` is capability-authorized), and on a supported HTTPS deployment TLS protects the integrity of that response; the accepted plain-HTTP mode keeps its documented active-tampering exposure. It is NOT bound into the HPKE `info` the envelope is sealed under -- that binds version, suite, handoff id and the capability hash -- so it sits at exactly the trust level of the `max_*` values and `expires_at` beside it. The page writes it with textContent into static markup, builds no node from it and creates no anchor, so markup in a description renders as those characters and it can change nothing about the lane, the ceilings or the deadline. That is a defence against markup EXECUTING, not against copy MISLEADING: prose can still lie, which is what the bounds, the closed key set and the model-facing guidance are for."
         }
       },
       "response": {
@@ -142,7 +159,8 @@
         "notice": "only when notice_platform was given: the waiting message, rendered for that platform",
         "notice_received": "only when notice_platform was given: the content the waiting message is edited into on submit; identical on every platform",
         "notice_expired": "only when notice_platform was given: the content it is edited into on lapse; identical on every platform",
-        "outbound_protocol": "number: the outbound-drop revision this broker speaks (see outbound_drop); absent means it cannot hand a secret out at all. Advertised on this response as well as on create_outbound_drop's, so the capability is known before anything is posted"
+        "outbound_protocol": "number: the outbound-drop revision this broker speaks (see outbound_drop); absent means it cannot hand a secret out at all. Advertised on this response as well as on create_outbound_drop's, so the capability is known before anything is posted",
+        "form_protocol": "number: the form-descriptor revision this broker speaks (see form_request); absent means it cannot honour a `form` at all -- it would accept the key by ignoring it, serve the generic page and take any file count. A client that sends a descriptor, or that asks for a typed payload_kind because it knows the shape, reads this and refuses BEFORE posting a link, exactly as it reads file_claim_protocol"
       }
     },
     "await": {
@@ -445,5 +463,24 @@
       "payload_too_large",
       "bad_generate"
     ]
+  },
+  "form_request": {
+    "protocol": 1,
+    "advertised_as": "Published as `form_protocol` on the `create` response. Revision 1 IS the schema described under ops.create.form; a change to it raises this number rather than reinterpreting it. Additive and deliberately NOT a protocol version bump, for the reason version_notes.file_claim gives: a client that never sends `form` neither sends nor reads anything new.",
+    "supersedes": "docs/UNIVERSAL_DROP_DELIVERY_PLAN.md said the model must not choose or predict the payload kind, and universal_drop.pending_choice above said no field on `create` lets the requester choose. Both were written when the form had no way to say what it wanted, so a predicted kind could only ever be a guess that took a lane away from the sender. `payload_kind` is now an OPTIONAL statement of something the requester already knows, `universal` remains the default and the documented fallback for everything unknown, and the sender still chooses the lane on every universal link exactly as before. What has not changed: nothing lets a requester choose the destination, and a typed drop still refuses the other lane rather than silently accepting it.",
+    "reasons": [
+      "not_an_object",
+      "empty_form",
+      "unknown_key",
+      "bad_label",
+      "label_too_long",
+      "bad_description",
+      "description_too_long",
+      "bad_expect_files",
+      "expect_files_not_allowed",
+      "expect_files_too_large"
+    ],
+    "reasons_note": "Returned as `reason` on the invalid_request answer. A CODE and never prose containing the offending value, for the reason create_outbound_drop.errors.reason gives: a caller's tool results reach a model's context and from there durable session state.",
+    "metadata_echo": "`POST /api/metadata` carries `form` with exactly the keys that were minted, and omits the key entirely when the drop has no descriptor -- so a page can tell 'no descriptor' from 'a descriptor that says nothing' without a sentinel, and every drop predating this answers byte-identically to how it always did."
   }
 }

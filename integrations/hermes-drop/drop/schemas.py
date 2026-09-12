@@ -47,6 +47,56 @@ REQUEST_PRIVATE_INPUT: Dict[str, Any] = {
                 "maximum": 60,
                 "description": "Link lifetime. Default 30.",
             },
+            # The four optional fields below let the form say what it is asking for.
+            # Every one of them is OPTIONAL and every one of them defaults to the
+            # behaviour that shipped before they existed: omit them all and the user
+            # gets the universal form -- a textarea and a file picker, the sender
+            # choosing -- exactly as before.
+            #
+            # `mode` supersedes the older rule that the model must never predict the
+            # payload kind (docs/UNIVERSAL_DROP_DELIVERY_PLAN.md). That rule was
+            # written when the form had no way to say what it wanted, so a guess could
+            # only be a guess. It is now an optional statement of something known, and
+            # the fallback for everything else is still universal. The wording leans
+            # hard on "only when you already know" because a wrong `mode` is worse
+            # than none: it takes a lane away from the sender.
+            "mode": {
+                "type": "string",
+                "enum": ["text", "files"],
+                "description": (
+                    "Only when you already know which one the user will send: 'text' "
+                    "for a value they will paste, 'files' for files they will upload. "
+                    "OMIT THIS if you are not sure -- the form then accepts either and "
+                    "the user chooses."
+                ),
+            },
+            "expect_files": {
+                "type": "integer",
+                "minimum": 1,
+                "description": (
+                    "Exact number of files being asked for. Only with mode 'files', "
+                    "and only when the count is genuinely known (e.g. the user said "
+                    "'both config files'). Omit it to accept any number up to the "
+                    "limit."
+                ),
+            },
+            "description": {
+                "type": "string",
+                "description": (
+                    "One short sentence shown INSIDE the form telling the user what to "
+                    "paste or upload, e.g. 'Upload the two config files for the "
+                    "staging deployment.' Non-secret, plain text, one line, at most "
+                    "300 characters. Write it in the language of the conversation. "
+                    "Never put a secret, a URL or markup in it."
+                ),
+            },
+            "label": {
+                "type": "string",
+                "description": (
+                    "Optional short heading for the form, e.g. 'Staging deployment "
+                    "config'. Non-secret, plain text, one line, at most 80 characters."
+                ),
+            },
         },
         "required": [],
     },

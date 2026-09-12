@@ -68,7 +68,17 @@ def test_no_destination_field_at_any_depth(schemas, schema_name: str) -> None:
 def test_parameter_names_are_an_exact_allowlist(schemas, schema_name: str) -> None:
     """A blocklist can be walked around by a new synonym; the allowlist cannot."""
     allowed = {
-        "request_private_input": {"purpose", "minutes"},
+        # `purpose` is the audit journal's label and never leaves the plugin. The
+        # four form fields are the opposite: browser display data, never journalled.
+        # Both directions are pinned in test_tools.py.
+        "request_private_input": {
+            "purpose",
+            "minutes",
+            "mode",
+            "expect_files",
+            "description",
+            "label",
+        },
         "claim_private_input": {"drop_id"},
         # No destination, and no free-text body either: the payload is a list of
         # labelled fields so the page can render a Copy button per value and mask the
