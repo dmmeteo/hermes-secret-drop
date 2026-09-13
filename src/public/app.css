@@ -306,3 +306,84 @@ p { margin: .35rem 0; color: var(--muted); }
 
   .primary { box-shadow: 0 8px 24px #6e5ac02b; }
 }
+
+/* The declarative form.
+   Scoped to #form so the outbound reveal, which shares this stylesheet, is untouched.
+   No new colour token is introduced: every rule below reuses --ink, --muted, --line and
+   --wash, which are already redefined in the dark block, so the form follows the theme
+   the page has always followed. */
+#form .form-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+#form .form-field {
+  display: grid;
+  gap: 6px;
+}
+#form .form-field > label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* A long label wraps rather than widening the column past the phone. */
+  overflow-wrap: anywhere;
+}
+#form .form-field .optional {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+#form .form-field input[type="text"],
+#form .form-field input[type="email"],
+#form .form-field input[type="password"],
+#form .form-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 13px;
+  /* 16px on the control itself, because anything smaller makes iOS zoom the page on
+     focus — which on a one-shot form reads as the page breaking. */
+  font-size: 16px;
+}
+#form .form-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+#form .form-field input:focus-visible,
+#form .form-field textarea:focus-visible,
+#form .form-field .drop-zone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The reveal sits beside the field rather than inside it: a control overlaid on the
+   text would cover the end of a long value, which is exactly the part someone is
+   checking when they press it. */
+#form .secret-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+#form .secret-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#form .secret-row .ghost {
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding-inline: 12px;
+}
+#form .form-field .drop-zone {
+  min-height: 64px;
+  width: 100%;
+}

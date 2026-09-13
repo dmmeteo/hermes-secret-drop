@@ -42,6 +42,12 @@
 <h1 id="form-title">Send privately</h1>
 <p id="request-description" class="request-note" hidden></p>
 </div>
+<!-- The declarative form renders here, and ONLY here. The list ships empty and stays
+     empty for every drop that is not a form, so a universal or typed drop is the page
+     it has always been. Every node inside is built by src/client/form-view.js with
+     createElement and textContent — a label is text, never markup, exactly like the
+     description above it. -->
+<ol id="form-fields" class="form-fields" hidden></ol>
 <label class="sr-only" for="secret">Private details</label>
 <textarea id="secret" placeholder="Paste here" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter"></textarea>
 <!-- A real button, not a <label for>. A label is not keyboard focusable, so the only

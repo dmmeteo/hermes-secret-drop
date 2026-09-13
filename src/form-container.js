@@ -135,6 +135,18 @@ async function sha256Hex(bytes) {
   return out;
 }
 
+/**
+ * The largest container a form with **no file group** can produce.
+ *
+ * Separate from `formContainerCeiling` because the two answer different questions. A
+ * form of value fields cannot carry a file byte, so sizing it as if it could would hand
+ * an authenticated caller a 56 MiB body allowance for a drop that can only ever hold
+ * 64 KiB — a buffer it could ask for and never fill.
+ */
+export function formValueCeiling() {
+  return FORM_CONTAINER_HEADER_BYTES + MAX_FORM_MANIFEST_BYTES + MAX_FIELDS * LARGEST_VALUE_CEILING;
+}
+
 /** The largest container these limits can produce. Transports size their ceilings from it. */
 export function formContainerCeiling(limits) {
   const resolved = resolveFileLimits(limits);

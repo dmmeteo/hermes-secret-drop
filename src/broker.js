@@ -148,6 +148,7 @@ import {
   decodeFormContainer,
   decodeFormValuesSync,
   formContainerCeiling,
+  formValueCeiling,
 } from './form-container.js';
 import { validateFormRequest } from './form-request.js';
 import { createOutboundDrops } from './outbound-drop.js';
@@ -442,9 +443,15 @@ export function createBroker(config, logger = console) {
     return record.payloadKind;
   }
 
-  /** The widened body ceiling for one file submission against this record's limits. */
+  /**
+   * The widened body ceiling for one container submission against this record.
+   *
+   * Taken from `record.maxPayloadBytes` rather than re-derived from the file limits,
+   * because a form drop's ceiling is not the file codec's: a form with no file group
+   * cannot carry a file byte and is sized for its values alone.
+   */
   function fileBodyCeiling(record) {
-    const ceiling = fileContainerCeiling(record.fileLimits);
+    const ceiling = record.maxPayloadBytes ?? fileContainerCeiling(record.fileLimits);
     return base64Length(ceiling + AEAD_TAG_BYTES) + ENVELOPE_JSON_OVERHEAD_BYTES;
   }
 
@@ -916,14 +923,18 @@ export function createBroker(config, logger = console) {
         contractDigest = await formContractDigest(contract, delivery);
       }
 
-      const { maxPayloadBytes, envelopeVersion } = payloadShapeFor(payloadKind, limits);
+      let { maxPayloadBytes, envelopeVersion } = payloadShapeFor(payloadKind, limits);
+      const formCarriesFiles = isForm && contract.fields.some((field) => field.type === 'files');
+      // A form with no file group cannot carry a file byte, so it is not sized as if it
+      // could: a 42 MiB ceiling on a drop that can only ever hold 64 KiB of text would
+      // be a 56 MiB buffer an authenticated caller could ask for and never fill.
+      if (isForm && !formCarriesFiles) maxPayloadBytes = formValueCeiling();
       // The reservation is the ceiling the broker will actually enforce on this
       // drop's plaintext, so the two can never disagree. A universal drop has no
       // such ceiling yet, and reserves when its file lane is declared.
       // A form drop reserves only when its contract actually has a file group. A form of
       // four text fields cannot carry a file byte, and pre-reserving 42 MiB for it would let
       // four such links exhaust a budget for bytes nobody can send.
-      const formCarriesFiles = isForm && contract.fields.some((field) => field.type === 'files');
       const reservesFileBudget = isFiles || formCarriesFiles;
       const reservedBytes = reservesFileBudget ? maxPayloadBytes : 0;
       if (reservesFileBudget && !reserveFileBytes(reservedBytes)) {
@@ -1178,10 +1189,9 @@ export function createBroker(config, logger = console) {
       // A declaration this record cannot honour gets the text ceiling rather than a
       // refusal: this function is pure and has no refusal channel. The refusal is
       // `acquireSubmitSlot`'s, which is what a request actually goes through.
-      if (resolveSubmitKind(record, declaration) !== PAYLOAD_KIND_FILES) {
-        return config.maxBodyBytes;
-      }
-      return fileBodyCeiling(record);
+      const kind = resolveSubmitKind(record, declaration);
+      if (kind === PAYLOAD_KIND_FILES || kind === PAYLOAD_KIND_FORM) return fileBodyCeiling(record);
+      return config.maxBodyBytes;
     },
 
     /**
@@ -1226,11 +1236,22 @@ export function createBroker(config, logger = console) {
         );
         return { ok: false, ceiling: textCeiling, widened: false, release: () => {} };
       }
-      if (kind !== PAYLOAD_KIND_FILES) {
+      // A form drop takes the widened, gated lane only when its contract actually has
+      // a file group — which is exactly when it reserved file budget at create. A form
+      // of value fields is bounded by its own small ceiling and is gated by nothing,
+      // like text.
+      const widenedLane =
+        kind === PAYLOAD_KIND_FILES || (kind === PAYLOAD_KIND_FORM && record.reservedBytes > 0);
+      if (!widenedLane) {
         // The text lane, gated by nothing, exactly as text always was: its ceiling
         // was always small enough to buffer freely and the seam-3 concurrency
         // behaviour depends on the losers reaching the broker.
-        return { ok: true, ceiling: textCeiling, widened: false, release: () => {} };
+        return {
+          ok: true,
+          ceiling: Math.max(textCeiling, kind === PAYLOAD_KIND_FORM ? fileBodyCeiling(record) : 0),
+          widened: false,
+          release: () => {},
+        };
       }
 
       const ceiling = fileBodyCeiling(record);
@@ -1555,7 +1576,13 @@ export function createBroker(config, logger = console) {
     async beginFileClaim(handoffId, { owner, leaseMs, onLeaseLost } = {}) {
       const record = live(byHandoffId.get(handoffId), Date.now());
       if (!record || !record.plaintext) return UNAVAILABLE;
-      if (record.payloadKind !== PAYLOAD_KIND_FILES) return UNAVAILABLE;
+      // A form drop carrying files is claimed over this seam too. It has to be: a
+      // container is not a secret to be base64'd into one newline-delimited line, and
+      // the values that came with those files must arrive in the same transaction as
+      // them — a claim that handed back the text and then failed on the bytes would
+      // have spent a one-shot drop for half an answer.
+      const isFormTransfer = record.payloadKind === PAYLOAD_KIND_FORM;
+      if (record.payloadKind !== PAYLOAD_KIND_FILES && !isFormTransfer) return UNAVAILABLE;
       // The busy lease is answered *before* the state check, and that order is the
       // whole difference between the two refusals. `transferring` is not
       // `submitted`, so checking the state first would tell a second receiver
@@ -1614,7 +1641,12 @@ export function createBroker(config, logger = console) {
       // (see the ownership note in src/file-container.js).
       let decoded;
       try {
-        decoded = await decodeFileContainer(record.plaintext, { limits: record.fileLimits });
+        decoded = isFormTransfer
+          ? await decodeFormContainer(record.plaintext, {
+              contractDigest: record.contractDigest,
+              limits: record.fileLimits,
+            })
+          : await decodeFileContainer(record.plaintext, { limits: record.fileLimits });
       } catch (error) {
         if (!(error instanceof FileContainerError)) throw error;
         // Unreachable through any ordinary path: `submit` refused anything that
@@ -1639,6 +1671,18 @@ export function createBroker(config, logger = console) {
       }
       if (record.state !== 'submitted') return UNAVAILABLE;
 
+      // A form's structured values ride the transfer as ONE LEADING FRAME, exactly
+      // where a files drop puts its optional private text. Reusing that slot rather
+      // than adding a field to the begin response is deliberate: the values of a
+      // maximal form are 64 KiB, the control line is 4096, and a response that
+      // sometimes fitted and sometimes did not would be the worst of both. It also
+      // means the values are digest-checked and acked by the same machinery the file
+      // bytes are, instead of by a second path that could disagree with it.
+      const formValuesBytes = isFormTransfer
+        ? new TextEncoder().encode(JSON.stringify(decoded.values))
+        : null;
+      const leadingBytes = isFormTransfer ? formValuesBytes : decoded.textBytes;
+
       const transferId = bytesToBase64Url(randomBytes(16));
       // The deadline is fixed *here*, against a clock read after the manifest pass,
       // and clamped again to the record's own expiry. Adding `effectiveLeaseMs` to
@@ -1650,16 +1694,16 @@ export function createBroker(config, logger = console) {
         transferId,
         owner,
         onLeaseLost,
-        totalBytes: decoded.totalBytes + (decoded.textBytes?.length ?? 0),
+        totalBytes: decoded.totalBytes + (leadingBytes?.length ?? 0),
         expectedDigests: [
-          ...(decoded.textBytes ? [sha256HexSync(decoded.textBytes)] : []),
+          ...(leadingBytes ? [sha256HexSync(leadingBytes)] : []),
           ...decoded.files.map((file) => file.sha256),
         ],
         expectedSizes: [
-          ...(decoded.textBytes ? [decoded.textBytes.length] : []),
+          ...(leadingBytes ? [leadingBytes.length] : []),
           ...decoded.files.map((file) => file.size),
         ],
-        hasPrivateText: decoded.textBytes !== undefined,
+        hasPrivateText: leadingBytes !== undefined && leadingBytes !== null,
         /** The frame the receiver must ack next; `files.length` means all are in. */
         nextFrame: 0,
         /** Bytes the receiver proved it hashed, one validated ack at a time. */
@@ -1689,12 +1733,20 @@ export function createBroker(config, logger = console) {
         handoff_id: handoffId,
         transfer_id: transferId,
         lease_expires_at: lease.expiresAt,
-        total_bytes: decoded.totalBytes + (decoded.textBytes?.length ?? 0),
-        ...(decoded.textBytes === undefined ? {} : {
-          private_text: { size: decoded.textBytes.length, sha256: sha256HexSync(decoded.textBytes) },
-          private_text_bytes: decoded.textBytes,
+        total_bytes: decoded.totalBytes + (leadingBytes?.length ?? 0),
+        ...(leadingBytes === undefined || leadingBytes === null ? {} : {
+          private_text: { size: leadingBytes.length, sha256: sha256HexSync(leadingBytes) },
+          private_text_bytes: leadingBytes,
         }),
+        // A form transfer says which contract it answers and which field each file
+        // belongs to. Without the field a receiver would have an ordered pile of files
+        // and no way to tell the two groups apart — which is the whole point of having
+        // named groups rather than one list.
+        ...(isFormTransfer ? {
+          form: { contract_digest: record.contractDigest, contract: record.formContract, delivery: record.delivery },
+        } : {}),
         files: decoded.files.map((file) => ({
+          ...(isFormTransfer ? { field: file.field } : {}),
           name: file.name,
           type: file.type,
           size: file.size,

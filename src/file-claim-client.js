@@ -144,6 +144,29 @@ function indeterminate(reason) {
  * no answer was read. This client never reports success on a transfer it could not
  * finish, and never reports `transfer_failed` for an outcome it cannot rule on.
  */
+/**
+ * The structured values out of a form transfer's leading frame.
+ *
+ * The frame was digest-checked and strict-UTF-8 decoded like any other, so this parse
+ * is over bytes the broker built and this receiver verified — not over anything a
+ * submitter chose. A shape that is not the expected array is returned as an empty list
+ * rather than thrown: the files are already claimed and the transfer already committed,
+ * and a throw here would lose a delivery that succeeded.
+ */
+function parseFormValues(raw) {
+  if (typeof raw !== 'string') return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((entry) => entry && typeof entry.field === 'string' && typeof entry.value === 'string')
+    .map((entry) => ({ field: entry.field, value: entry.value }));
+}
+
 export async function receiveFileClaim(
   socketPath,
   handoffId,
@@ -266,6 +289,8 @@ export async function receiveFileClaim(
         }
       } else {
         files.push({
+          // Present only on a form transfer: which named group this file belongs to.
+          ...(entry.field === undefined ? {} : { field: entry.field }),
           name: entry.name,
           type: entry.type,
           size: entry.size,
@@ -327,6 +352,16 @@ export async function receiveFileClaim(
       totalBytes: metadata.total_bytes,
       files,
       ...(privateInput === undefined ? {} : { privateInput }),
+      // A form transfer's leading frame is the structured values, not private text.
+      // Parsed here so a caller never has to know which of the two a `privateInput`
+      // happened to be — it gets `form` when there is a contract, and nothing to
+      // disambiguate when there is not.
+      ...(metadata.form === undefined ? {} : {
+        form: {
+          ...metadata.form,
+          values: parseFormValues(privateInput),
+        },
+      }),
     };
   } catch (error) {
     const detail = (socketError ?? error).message;

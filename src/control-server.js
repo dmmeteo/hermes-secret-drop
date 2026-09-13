@@ -321,7 +321,14 @@ function serveConnection({ socket, broker, logger }) {
           lease_expires_at: begun.lease_expires_at,
           total_bytes: begun.total_bytes,
           ...(begun.private_text === undefined ? {} : { private_text: begun.private_text }),
+          // A form transfer names the contract it answers, and every file says which
+          // group it belongs to. Without the field a receiver would have an ordered
+          // pile of files and no way to tell two groups apart — which is the whole
+          // point of naming them. The leading frame, where a files drop puts its
+          // private text, carries the form's structured values as UTF-8 JSON.
+          ...(begun.form === undefined ? {} : { form: begun.form }),
           files: begun.files.map((file) => ({
+            ...(file.field === undefined ? {} : { field: file.field }),
             name: file.name,
             size: file.size,
             type: file.type,

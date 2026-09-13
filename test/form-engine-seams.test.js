@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
-import { startTestBroker, createFormDrop, createUniversalDrop } from './helpers/harness.js';
+import { startTestBroker, claimFileDrop, createFormDrop, createUniversalDrop } from './helpers/harness.js';
 
 const CREDENTIAL_PAIR = {
   version: 1,
@@ -276,5 +276,111 @@ describe('the two descriptors are alternatives, never a pair', () => {
     assert.equal(created.ok, true);
     assert.equal(created.payload_kind, 'files');
     assert.equal(created.form_protocol, 2);
+  });
+});
+
+describe('a form may group files independently, and they come back grouped', () => {
+  let broker;
+  before(async () => { broker = await startTestBroker(); });
+  after(async () => { await broker.stop(); });
+
+  const EVIDENCE = {
+    version: 1,
+    title: 'Deployment evidence',
+    fields: [
+      { id: 'release', type: 'text', label: 'Release tag', required: true },
+      // Two groups that legitimately share a caption and are told apart by their ids.
+      // This is the case the "labels need not be unique" rule exists for.
+      { id: 'app_logs', type: 'files', label: 'Log files', required: true, min_files: 1, max_files: 2 },
+      { id: 'conf_logs', type: 'files', label: 'Log files', min_files: 1, max_files: 2 },
+    ],
+  };
+
+  const bytesOf = (...values) => new Uint8Array(values);
+
+  it('round-trips values and every file byte-exactly, each under its own field', async () => {
+    const drop = await createFormDrop(broker, { contract: EVIDENCE, maxFiles: 4 });
+    const files = [
+      // NUL and 0xff included on purpose: a container that mangled either would be a
+      // container that quietly corrupts binaries.
+      { field: 'app_logs', name: 'app.log', type: 'text/plain', bytes: bytesOf(1, 2, 0, 255, 65) },
+      { field: 'app_logs', name: 'app2.log', type: 'text/plain', bytes: bytesOf(9, 9) },
+      { field: 'conf_logs', name: 'staging.env', type: '', bytes: new TextEncoder().encode('A=1\n') },
+    ];
+    const values = [{ field: 'release', value: 'v2026.9.13 — ключ 🔑' }];
+    assert.equal(await drop.send(await drop.seal({ values, files })), 'received');
+
+    // A form carrying files is claimed over the framed transfer, like a files drop:
+    // the one-line claim seam has no way to hand back 42 MiB.
+    assert.deepEqual(
+      await broker.control({ op: 'claim', handoff_id: drop.id }),
+      { ok: false, error: 'unavailable' },
+    );
+
+    const claimed = await claimFileDrop(broker, drop.id, { collectBytes: true });
+    assert.equal(claimed.ok, true);
+    assert.equal(claimed.status, 'claimed');
+    // The values rode the leading frame and arrive alongside the files, in one
+    // transaction — a claim that returned the text and then failed on the bytes would
+    // have spent a one-shot drop for half an answer.
+    assert.deepEqual(claimed.form.values, values);
+    assert.equal(claimed.form.contract_digest, drop.created.contract_digest);
+
+    assert.deepEqual(
+      claimed.files.map((file) => [file.field, file.name]),
+      [['app_logs', 'app.log'], ['app_logs', 'app2.log'], ['conf_logs', 'staging.env']],
+    );
+    for (const file of claimed.files) {
+      const expected = files.find((candidate) => candidate.name === file.name);
+      assert.deepEqual(new Uint8Array(file.bytes), expected.bytes, file.name);
+    }
+  });
+
+  it('refuses a second framed claim', async () => {
+    const drop = await createFormDrop(broker, { contract: EVIDENCE, maxFiles: 4 });
+    await drop.send(await drop.seal({
+      values: [{ field: 'release', value: 'v1' }],
+      files: [{ field: 'app_logs', name: 'a.log', type: '', bytes: bytesOf(1) }],
+    }));
+    assert.equal((await claimFileDrop(broker, drop.id, { collectBytes: true })).ok, true);
+    assert.equal((await claimFileDrop(broker, drop.id, { collectBytes: true })).ok, false);
+  });
+
+  it('refuses a file count outside one group’s own bounds, consuming nothing', async () => {
+    const drop = await createFormDrop(broker, { contract: EVIDENCE, maxFiles: 4 });
+    // Three files in a group whose ceiling is two. The other group is untouched, which
+    // is what makes this a per-group rule rather than a per-drop one.
+    const tooMany = [1, 2, 3].map((index) => ({
+      field: 'app_logs', name: `a${index}.log`, type: '', bytes: bytesOf(index),
+    }));
+    assert.equal(
+      await drop.send(await drop.seal({
+        values: [{ field: 'release', value: 'v1' }],
+        files: tooMany,
+      })),
+      'unavailable',
+    );
+    assert.equal(
+      await drop.send(await drop.seal({
+        values: [{ field: 'release', value: 'v1' }],
+        files: [{ field: 'app_logs', name: 'a.log', type: '', bytes: bytesOf(1) }],
+      })),
+      'received',
+    );
+  });
+
+  it('requires the required group and lets the optional one be left out', async () => {
+    const drop = await createFormDrop(broker, { contract: EVIDENCE, maxFiles: 4 });
+    assert.equal(
+      await drop.send(await drop.seal({ values: [{ field: 'release', value: 'v1' }], files: [] })),
+      'unavailable',
+    );
+    assert.equal(
+      await drop.send(await drop.seal({
+        values: [{ field: 'release', value: 'v1' }],
+        files: [{ field: 'app_logs', name: 'a.log', type: '', bytes: bytesOf(1) }],
+      })),
+      'received',
+    );
   });
 });
