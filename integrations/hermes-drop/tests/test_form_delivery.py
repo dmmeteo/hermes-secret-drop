@@ -400,3 +400,40 @@ def test_an_unrecognised_values_shape_fails_closed_rather_than_passing_through(b
     # outcome this seam exists to prevent.
     with pytest.raises(vault.VaultError):
         vault.redact_tool_result(broken, session_id="session-1")
+
+
+@pytest.mark.asyncio
+async def test_the_drop_is_marked_spent_before_the_consumer_is_called(
+    plugin, journal, lane, contracts, consumers
+):
+    """A crash inside `deliver()` must not leave the journal believing it is claimable.
+
+    The broker has already retired its record by the time delivery starts, so the drop is
+    spent whatever the consumer does. Recording that first is what makes the durable
+    record match reality — and it is also why an interrupted delivery is never retried:
+    there is nothing left to re-claim.
+    """
+    origin, _ = lane()
+    seen = {}
+
+    class Exploding(Canary):
+        def deliver(self, bundle):
+            seen["claimed_at"] = journal.get("H" * 22)["claimed_at"]
+            raise RuntimeError("died mid-delivery")
+
+    control = FormControl(
+        _form_response(
+            contracts["pair"],
+            {"mode": "consumer", "consumer": "canary"},
+            [("password", SECRET_VALUE)],
+        )
+    )
+    service = await _received(
+        plugin, journal, origin, control,
+        consumer_registry={"canary": Exploding(consumers.ConsumerStatus.DELIVERED)},
+    )
+    result = await service.claim(origin, "H" * 22)
+
+    assert seen["claimed_at"] is not None, "the drop was still claimable during delivery"
+    assert result["state"] == "failed"
+    assert journal.get("H" * 22)["claimed_at"] is not None

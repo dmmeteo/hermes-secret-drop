@@ -607,6 +607,22 @@ class DropService:
             self._record_claim(drop_id)
             return {"error": unavailable.code}
 
+        # Marked spent BEFORE the consumer is called, and the order is the point.
+        #
+        # By the time this method runs the broker has already retired its record, so the
+        # drop is spent whatever the consumer goes on to do — that is a fact about the
+        # broker, not about the delivery. Recording it first means a crash inside
+        # `deliver()` leaves a durable record that matches reality; recording it after
+        # would leave a window in which the drop is gone from the broker and the journal
+        # still believes it is claimable.
+        #
+        # It also settles the restart question without a retry: there is nothing to
+        # re-claim, so a delivery interrupted by a restart is never attempted twice. What
+        # it may be is *uncertain* — the consumer's own side effect may or may not have
+        # landed — which is why no retry is offered and why `delivery_token` exists for
+        # sinks that can make their own write idempotent.
+        recorded = self._record_claim(drop_id)
+
         token = consumers_mod.delivery_token(drop_id, digest, name)
         bundle = consumers_mod.SecretBundle(
             drop_id=drop_id,
@@ -627,7 +643,7 @@ class DropService:
             token=token,
             submitted_field_ids=[field_id for field_id, _ in pairs],
         )
-        if not self._record_claim(drop_id):
+        if not recorded:
             receipt["note"] = UNRECORDED_CLAIM_NOTE
         return receipt
 
