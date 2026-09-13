@@ -182,7 +182,7 @@ describe('file mode: minting and advertised limits', () => {
     // `universal` joined the list in slice U1 (docs/UNIVERSAL_DROP_DELIVERY_PLAN.md)
     // on the same terms: a kind is advertised so a plugin can refuse before posting
     // a link it cannot claim, and adding one is additive rather than a version bump.
-    assert.deepEqual(created.payload_kinds, ['text', 'files', 'universal']);
+    assert.deepEqual(created.payload_kinds, ['text', 'files', 'universal', 'form']);
     assert.equal(created.protocol_version, 2, 'file mode is additive; the protocol did not move');
   });
 

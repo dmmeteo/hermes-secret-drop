@@ -156,7 +156,7 @@ describe('universal drops: one link that advertises both lanes', () => {
   // plugin reads to know it is talking to a broker that can mint one.
   it('advertises the universal kind so an older plugin can fail before posting', async () => {
     const created = await broker.control({ op: 'create', ttl_seconds: TTL_SECONDS });
-    assert.deepEqual(created.payload_kinds, ['text', 'files', 'universal']);
+    assert.deepEqual(created.payload_kinds, ['text', 'files', 'universal', 'form']);
     assert.equal(created.protocol_version, 2, 'the universal kind is additive');
   });
 

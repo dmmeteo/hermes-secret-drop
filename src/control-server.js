@@ -8,7 +8,9 @@ import { dirname } from 'node:path';
 
 import { PAYLOAD_KINDS } from './broker.js';
 import { PAYLOAD_KIND_FILES, PAYLOAD_KIND_TEXT, PAYLOAD_KIND_UNIVERSAL } from './file-container.js';
-import { FORM_PROTOCOL, validateFormRequest } from './form-request.js';
+import { FORM_PROTOCOL, deliveryFor, validateFormContract } from './form-contract.js';
+import { PAYLOAD_KIND_FORM } from './form-container.js';
+import { validateFormRequest } from './form-request.js';
 import { expiredNotice, receivedNotice, waitingNotice } from './notice.js';
 import { OUTBOUND_PROTOCOL } from './outbound-drop.js';
 import { outboundNotice } from './outbound-notice.js';
@@ -688,7 +690,11 @@ async function handleControlRequest(request, broker) {
         // Meaningless on a text drop, so it is refused rather than ignored: a
         // caller that asked for a file count and got a text drop was misheard. A
         // universal drop has a file lane, so it narrows like a files drop does.
-        if (payloadKind !== PAYLOAD_KIND_FILES && payloadKind !== PAYLOAD_KIND_UNIVERSAL) {
+        if (
+          payloadKind !== PAYLOAD_KIND_FILES &&
+          payloadKind !== PAYLOAD_KIND_UNIVERSAL &&
+          payloadKind !== PAYLOAD_KIND_FORM
+        ) {
           return { ok: false, error: 'invalid_request' };
         }
         if (!Number.isInteger(maxFiles) || maxFiles < 1) {
@@ -714,11 +720,55 @@ async function handleControlRequest(request, broker) {
         return { ok: false, error: 'invalid_request', reason: descriptor.reason };
       }
 
+      // The two descriptors are alternatives. A caller that sent both asked two different
+      // questions about one drop, and answering the one we happen to read first is the
+      // silent precedence this project refuses everywhere else — so it is named and
+      // refused. The check is here, at the seam that can say *which* rule broke, as well
+      // as in the broker, which is the authority an in-process caller also meets.
+      const wantsContract = request.form_contract !== undefined && request.form_contract !== null;
+      const wantsDescriptor = request.form !== undefined && request.form !== null;
+      if (wantsContract && wantsDescriptor) {
+        return { ok: false, error: 'invalid_request', reason: 'form_and_legacy_descriptor' };
+      }
+      if (wantsContract && payloadKind !== PAYLOAD_KIND_FORM) {
+        return { ok: false, error: 'invalid_request', reason: 'contract_needs_form_kind' };
+      }
+      if (!wantsContract && payloadKind === PAYLOAD_KIND_FORM) {
+        return { ok: false, error: 'invalid_request', reason: 'form_kind_needs_contract' };
+      }
+
+      // A consumer name is recorded, never authorized here: whether a consumer is installed
+      // and willing is a fact about the Hermes host, and the broker has no way to know it.
+      // What this seam enforces is that a contract needing one cannot be minted without a
+      // name to bind, so the delivery contract the AEAD binds is never half-formed.
+      const consumer = request.consumer;
+      if (consumer !== undefined && (typeof consumer !== 'string' || consumer.length === 0 || consumer.length > 64)) {
+        return { ok: false, error: 'invalid_request', reason: 'bad_consumer' };
+      }
+
+      if (wantsContract) {
+        const contract = validateFormContract({
+          contract: request.form_contract,
+          maxFiles: maxFiles ?? undefined,
+        });
+        if (!contract.ok) {
+          return { ok: false, error: 'invalid_request', reason: contract.reason };
+        }
+        // Derived from the field types, and checked here so the caller is told which rule
+        // broke rather than meeting a bare `invalid_request` from the broker.
+        const delivery = deliveryFor(contract.contract, consumer ?? null);
+        if (delivery.mode === 'consumer' && delivery.consumer === null) {
+          return { ok: false, error: 'invalid_request', reason: 'secret_needs_consumer' };
+        }
+      }
+
       const created = await broker.create({
         ...(request.ttl_seconds === undefined ? {} : { ttlSeconds: Number(request.ttl_seconds) }),
         ...(payloadKind === undefined ? {} : { payloadKind }),
         ...(maxFiles === undefined ? {} : { maxFiles }),
         ...(request.form === undefined ? {} : { form: request.form }),
+        ...(request.form_contract === undefined ? {} : { formContract: request.form_contract }),
+        ...(consumer === undefined ? {} : { consumer }),
       });
       if (!created.ok) return created;
 
@@ -952,6 +1002,18 @@ async function handleControlRequest(request, broker) {
         };
       }
       if (!result.ok) return result;
+      // A form drop answers with structure rather than with one opaque string: the values
+      // keyed by the contract's own stable ids, plus the identity and the delivery contract
+      // they were minted under. The caller needs all three together — values it could not
+      // tie back to a contract would be values it had to guess the meaning of, and a
+      // delivery mode arriving separately from the values it governs would be a rule the
+      // caller could apply to the wrong payload.
+      //
+      // Not base64: these are already JSON-safe strings, and a claimant that had to decode
+      // them would be one more place a value could be mangled on its way to a consumer.
+      if (result.form !== undefined) {
+        return { ok: true, handoff_id: result.handoff_id, form: result.form };
+      }
       // Base64 is transport encoding for the JSON line, not a protection measure.
       const encoded = Buffer.from(result.plaintext).toString('base64');
       result.plaintext.fill(0);

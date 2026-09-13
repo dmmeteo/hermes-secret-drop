@@ -190,7 +190,15 @@ describe('the control protocol contract', () => {
       assert.equal(typeof contract.payload_kinds_note, 'string');
 
       for (const payload_kind of contract.payload_kinds) {
-        const created = await broker.control({ op: 'create', ttl_seconds: 60, payload_kind });
+        // `form` is the one kind that cannot be minted from the kind alone: it *is* its
+        // contract, and a form drop without one would be a page with no questions on it.
+        // The pairing is refused in both directions (`form_kind_needs_contract` /
+        // `contract_needs_form_kind`) rather than defaulted, so the fixture has to supply
+        // one here exactly as a real caller would.
+        const extra = payload_kind === 'form'
+          ? { form_contract: { version: 1, fields: [{ id: 'note', type: 'text', label: 'Note' }] } }
+          : {};
+        const created = await broker.control({ op: 'create', ttl_seconds: 60, payload_kind, ...extra });
         assert.equal(created.ok, true, payload_kind);
         assert.equal(created.payload_kind, payload_kind);
       }

@@ -20,7 +20,8 @@
   "payload_kinds": [
     "text",
     "files",
-    "universal"
+    "universal",
+    "form"
   ],
   "payload_kinds_note": "The payload kinds this broker can mint, echoed on every `create` response as `payload_kinds`. Additive and deliberately *not* a protocol version bump: a client that never sends `payload_kind` gets exactly the text drop it always got, and a client that needs file or universal drops reads this list and refuses before posting a link rather than discovering a broker that cannot serve it at submit time. Absence of the field means text only. A `text` drop carries one UTF-8 secret under max_plaintext_bytes in envelope v1; a `files` drop carries one HDROP2 container under the file limits in envelope v2, and its bytes are NOT retrievable through `claim` — they come out over the framed transfer described in `file_claim`; a `universal` drop is minted with neither chosen and accepts exactly one of the two, decided by the *sender* in the browser and declared per submission (see `universal_drop`). Once one submission wins, a universal drop is indistinguishable from one minted that way — including which claim path can retrieve it — so a client that cannot claim BOTH must not create one.",
   "universal_drop": {
@@ -115,14 +116,15 @@
           "enum": [
             "text",
             "files",
-            "universal"
+            "universal",
+            "form"
           ],
-          "note": "Defaults to `text`, which is the drop this protocol has always minted. An unlisted value is refused with invalid_request and mints nothing. A `files` drop additionally reserves its advertised maximum total against the broker's process-wide live-file budget at create time; when that budget is full the creation is refused with the uniform `unavailable` and nothing is minted. A `universal` drop reserves nothing at create — it may never carry a file at all — and its file lane reserves per submission instead (see `universal_drop`), so its file lane can be refused with the uniform `unavailable` later while its text lane still works."
+          "note": "Defaults to `text`, which is the drop this protocol has always minted. An unlisted value is refused with invalid_request and mints nothing. A `files` drop additionally reserves its advertised maximum total against the broker's process-wide live-file budget at create time; when that budget is full the creation is refused with the uniform `unavailable` and nothing is minted. A `universal` drop reserves nothing at create — it may never carry a file at all — and its file lane reserves per submission instead (see `universal_drop`), so its file lane can be refused with the uniform `unavailable` later while its text lane still works. A `form` drop is minted from a declarative contract (`form_contract`) instead of a descriptor; it reserves the file budget at create only when its contract actually declares a file group, because a form of text fields cannot carry a file byte."
         },
         "max_files": {
           "type": "number",
           "optional": true,
-          "note": "Only meaningful with payload_kind `files` or `universal`, and refused with invalid_request on a text drop rather than ignored. A positive integer that may only *narrow* the operator's HANDOFF_MAX_FILES; a larger value is clamped down to it. Narrowing the count does not reduce the reservation, because one file may still be the whole per-drop byte total."
+          "note": "Only meaningful with payload_kind `files`, `universal` or `form`, and refused with invalid_request on a text drop rather than ignored. A positive integer that may only *narrow* the operator's HANDOFF_MAX_FILES; a larger value is clamped down to it. Narrowing the count does not reduce the reservation, because one file may still be the whole per-drop byte total."
         },
         "form": {
           "type": "object",
@@ -140,6 +142,16 @@
           "text_rules": "`label` and `description` carry no Unicode control or format character (\\p{C}), no line or paragraph separator, no whitespace other than a plain U+0020 space, no leading or trailing whitespace and no double space, and must contain at least one letter or digit. Newlines are refused in both: this is single-paragraph copy. The rules are the ones `outbound_payload.text_rules` states and they exist for the same reason -- the bidi overrides are why it is strict rather than cosmetic, because copy that can reverse its own rendering can read as one sentence beside the input a person is about to paste a credential into. Nothing is normalised: a value that breaks a rule is refused, never repaired, because a collapsed or trimmed string is not the string the caller composed.",
           "expect_files_note": "Only meaningful with payload_kind `files`, and refused with invalid_request on `text` and `universal` rather than ignored -- on the same terms `max_files` is already refused on a text drop. Exactness is a claim about a request whose shape is known, and a universal drop is by definition one whose shape is not: the sender still chooses the lane. Unlike `max_files`, which may narrow silently because a narrowed upper bound is still true, a count above the drop's effective `max_files` is REFUSED rather than clamped: a clamped exact count would be a different request from the one that was made. Absence means the drop's existing upper bound -- the page renders 'up to N files' -- and never a fabricated exactness. Enforced by the broker on the DECODED container at submit: a submission carrying the wrong number is refused with the uniform `unavailable`, consumes nothing, leaves the drop pending and claimable, and is charged to the same bounded failure budget a refused container is.",
           "trust": "Display data, and untrusted. It reaches only a caller that has already proved it holds the drop's capability (`/api/metadata` is capability-authorized), and on a supported HTTPS deployment TLS protects the integrity of that response; the accepted plain-HTTP mode keeps its documented active-tampering exposure. It is NOT bound into the HPKE `info` the envelope is sealed under -- that binds version, suite, handoff id and the capability hash -- so it sits at exactly the trust level of the `max_*` values and `expires_at` beside it. The page writes it with textContent into static markup, builds no node from it and creates no anchor, so markup in a description renders as those characters and it can change nothing about the lane, the ceilings or the deadline. That is a defence against markup EXECUTING, not against copy MISLEADING: prose can still lie, which is what the bounds, the closed key set and the model-facing guidance are for."
+        },
+        "form_contract": {
+          "type": "object",
+          "optional": true,
+          "note": "The declarative form contract. Required with payload_kind `form` and refused with every other kind (reason `contract_needs_form_kind` / `form_kind_needs_contract`). Mutually exclusive with `form`: sending both is refused with `form_and_legacy_descriptor` and mints nothing. Validated before minting; a refusal carries a `reason` from form_contract.reasons and never the offending value. See form_contract below for the shape and the bounds."
+        },
+        "consumer": {
+          "type": "string",
+          "optional": true,
+          "note": "The name of the authorized no-model consumer this drop's values are to be delivered to. Recorded and bound into the contract digest; NEVER authorized here — whether a consumer is installed and willing is a fact about the Hermes host, which the broker cannot know. A contract containing a `secret` field is refused without one (`secret_needs_consumer`). 1..64 characters."
         }
       },
       "response": {
@@ -160,7 +172,21 @@
         "notice_received": "only when notice_platform was given: the content the waiting message is edited into on submit; identical on every platform",
         "notice_expired": "only when notice_platform was given: the content it is edited into on lapse; identical on every platform",
         "outbound_protocol": "number: the outbound-drop revision this broker speaks (see outbound_drop); absent means it cannot hand a secret out at all. Advertised on this response as well as on create_outbound_drop's, so the capability is known before anything is posted",
-        "form_protocol": "number: the form-descriptor revision this broker speaks (see form_request); absent means it cannot honour a `form` at all -- it would accept the key by ignoring it, serve the generic page and take any file count. A client that sends a descriptor, or that asks for a typed payload_kind because it knows the shape, reads this and refuses BEFORE posting a link, exactly as it reads file_claim_protocol"
+        "form_protocol": "number: the form-descriptor revision this broker speaks (see form_request); absent means it cannot honour a `form` at all -- it would accept the key by ignoring it, serve the generic page and take any file count. A client that sends a descriptor, or that asks for a typed payload_kind because it knows the shape, reads this and refuses BEFORE posting a link, exactly as it reads file_claim_protocol",
+        "contract_digest": {
+          "type": "string",
+          "optional": true,
+          "note": "Present on a `form` drop only. SHA-256 of the canonical contract and its derived delivery block, lowercase hex. This is the identity bound into the HPKE `info` from envelope version 3, so a contract altered between the broker and the page yields a ciphertext that does not open. It is a digest of non-secret display data."
+        },
+        "delivery_mode": {
+          "type": "string",
+          "optional": true,
+          "enum": [
+            "model",
+            "consumer"
+          ],
+          "note": "Present on a `form` drop only. Derived from the field types at mint and never chosen by a caller: `consumer` when any field is type `secret`, `model` otherwise. This is why no tool argument can downgrade masking by selecting a public result type — there is no such argument."
+        }
       }
     },
     "await": {
@@ -481,6 +507,87 @@
       "expect_files_too_large"
     ],
     "reasons_note": "Returned as `reason` on the invalid_request answer. A CODE and never prose containing the offending value, for the reason create_outbound_drop.errors.reason gives: a caller's tool results reach a model's context and from there durable session state.",
-    "metadata_echo": "`POST /api/metadata` carries `form` with exactly the keys that were minted, and omits the key entirely when the drop has no descriptor -- so a page can tell 'no descriptor' from 'a descriptor that says nothing' without a sentinel, and every drop predating this answers byte-identically to how it always did."
+    "metadata_echo": "`POST /api/metadata` carries `form` with exactly the keys that were minted, and omits the key entirely when the drop has no descriptor -- so a page can tell 'no descriptor' from 'a descriptor that says nothing' without a sentinel, and every drop predating this answers byte-identically to how it always did.",
+    "note_protocol": "The legacy descriptor's own floor is 1; the number advertised as `form_protocol` is now 2. See form_contract."
+  },
+  "form_contract": {
+    "protocol": 2,
+    "advertised_as": "form_protocol",
+    "version": 1,
+    "summary": "An ordered list of fields a requester asks for. Drop renders them, validates them, encrypts them in the browser and delivers the values keyed by stable field ids. Composition, not presets: every shape the product needs is a combination of the five types below, which is why the set is small and closed.",
+    "shape": "{\"version\":1,\"title\":\"<=60 code points\",\"description\":\"<=300 code points\",\"fields\":[{\"id\":\"^[a-z][a-z0-9_]{0,31}$\",\"type\":\"text|email|textarea|secret|files\",\"label\":\"<=40 code points\",\"required\":false,\"min_files\":1,\"max_files\":1}]}",
+    "canonical": "Hand-built in a fixed key order and digested with SHA-256. `title` and `description` are absent from the canonical form when absent — never null — so 'no description' has exactly one spelling. The derived delivery block is part of it, so the consumer a drop is bound to cannot be changed without changing the identity.",
+    "types": {
+      "text": "One line, shown normally. A username, an account id, a release tag.",
+      "email": "One line, checked for shape only: one @, something either side, a dot in the domain.",
+      "textarea": "Several lines. Notes, a config fragment, a public key.",
+      "secret": "One line, masked with an accessible reveal. Forces the consumer delivery mode.",
+      "files": "One independently identified group of files, with its own min_files/max_files."
+    },
+    "identity": "The id is the identity and must be unique. The label is display data and need NOT be unique: two independently identified file groups may honestly share a caption.",
+    "bounds": {
+      "max_fields": 8,
+      "max_title_chars": 60,
+      "max_label_chars": 40,
+      "max_description_chars": 300,
+      "max_field_id_chars": 32,
+      "max_value_bytes": {
+        "text": 512,
+        "email": 512,
+        "textarea": 8192,
+        "secret": 4096
+      },
+      "max_files_per_field": 5,
+      "max_contract_bytes": 4096,
+      "max_contract_depth": 8
+    },
+    "bounds_note": "Code points for display strings, UTF-8 bytes for values. The canonical whole is bounded as well as the parts, because the create request line is 4096 bytes and a contract every field of which is legal must still fit inside it. The file groups together cannot ask for more files than the drop's own max_files.",
+    "optionality": "An all-optional form is legal. What an empty submission means is defined at submit time instead: a submission answering nothing is refused (`empty_submission`). A required field containing only whitespace is refused as blank. Whitespace inside a submitted value is preserved byte for byte and never trimmed.",
+    "delivery": "Derived from the field types alone: `consumer` if any field is type `secret`, else `model`. No request field selects it. A `consumer` contract cannot be minted without a consumer name to bind.",
+    "envelope": "payload_kind `form` seals envelope version 3 as an HDROP3 container, declared with the same x-handoff-payload header the universal lanes use. From version 3 the HPKE `info` also binds the contract digest; versions 1 and 2 are byte-identical to what they have always been.",
+    "reasons": [
+      "bad_description",
+      "bad_field",
+      "bad_field_id",
+      "bad_files_bounds",
+      "bad_label",
+      "bad_required",
+      "bad_title",
+      "bad_type",
+      "bad_version",
+      "contract_too_large",
+      "denied_field_id",
+      "description_too_long",
+      "duplicate_field_id",
+      "files_over_budget",
+      "label_too_long",
+      "no_fields",
+      "not_an_object",
+      "title_too_long",
+      "too_many_fields",
+      "unknown_key"
+    ],
+    "seam_reasons": [
+      "form_and_legacy_descriptor",
+      "contract_needs_form_kind",
+      "form_kind_needs_contract",
+      "bad_consumer",
+      "secret_needs_consumer"
+    ],
+    "reasons_note": "Codes, never prose and never the offending input: a refusal is a tool result, it reaches a model's context and from there durable session state.",
+    "submission_reasons": [
+      "blank_required_field",
+      "duplicate_submitted_field",
+      "empty_submission",
+      "file_count_out_of_range",
+      "files_on_value_field",
+      "missing_required_field",
+      "not_email_shaped",
+      "unknown_submitted_field",
+      "value_on_files_field",
+      "value_too_long"
+    ],
+    "submission_reasons_note": "Enforced authoritatively by the broker on the decoded plaintext after the AEAD opens — the first moment plaintext exists. The page runs the same check from the same module, which makes its copy a courtesy to the sender and evidence of nothing. A refused submission consumes nothing: the drop stays pending and a correct submission still wins, charged to the same bounded container-failure budget.",
+    "metadata_echo": "A form drop's metadata carries form_contract, delivery, contract_digest, envelope_versions.form and payload_declaration. Unlike the legacy descriptor this one IS bound into the AEAD, so it cannot be altered in transit without the ciphertext failing to open."
   }
 }

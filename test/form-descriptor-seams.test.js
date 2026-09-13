@@ -65,7 +65,10 @@ describe('the descriptor reaches the page, and only the page that holds the capa
     // learn, before it posts a link, that it is talking to a broker which will
     // enforce that rather than ignore it.
     const drop = await createUniversalDrop(broker);
-    assert.equal(drop.created.form_protocol, 1);
+    // 2 since the declarative contract landed. The number is a floor, not an exact
+    // match, and this descriptor's own floor is still 1 — which is exactly why a legacy
+    // client reading `form_protocol >= 1` keeps working against this broker.
+    assert.equal(drop.created.form_protocol, 2);
   });
 
   it('carries no form key at all when none was asked for', async () => {

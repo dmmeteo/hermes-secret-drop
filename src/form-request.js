@@ -36,8 +36,15 @@
 import { displayTextProblem } from './outbound-payload.js';
 
 /**
- * The descriptor revision this broker speaks, advertised as `form_protocol` on the
- * `create` response.
+ * The floor a *legacy* descriptor needs, which is not the number this broker advertises.
+ *
+ * `form_protocol` on the `create` response is now `FORM_PROTOCOL` from
+ * `src/form-contract.js`, which is 2 — the revision that also speaks the declarative
+ * contract. This constant stayed behind as what the `label`/`description`/`expect_files`
+ * descriptor below requires, because the two floors are genuinely different: a client
+ * sending a legacy descriptor is happy with any broker at 1 or above, and one sending a
+ * contract needs 2. Naming them apart is what stops a future edit collapsing the pair and
+ * quietly telling an old client it cannot do something it can.
  *
  * It exists for the same pre-flight reason as `file_claim_protocol`: the two halves of
  * this project ship together but are *installed* separately, so a plugin that means
@@ -47,7 +54,7 @@ import { displayTextProblem } from './outbound-payload.js';
  * take any file count at all; the descriptor would be silently dropped and the user
  * would be asked the wrong question. Absence means "cannot", never "probably fine".
  */
-export const FORM_PROTOCOL = 1;
+export const LEGACY_FORM_PROTOCOL = 1;
 
 /** A heading for the form: short enough to stay one line on a phone. */
 export const MAX_LABEL_CHARS = 80;

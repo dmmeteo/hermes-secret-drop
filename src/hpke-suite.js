@@ -79,32 +79,77 @@ function suiteCodePointBytes() {
   return out;
 }
 
+/** The envelope version from which `info` also binds a form contract digest. */
+export const CONTRACT_BOUND_VERSION = 3;
+
+/** Lowercase hex, fixed width — the only digest spelling `buildInfo` accepts. */
+const CONTRACT_DIGEST_HEX = /^[0-9a-f]{64}$/;
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < out.length; index += 1) {
+    out[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return out;
+}
+
 /**
  * info = "hermes-handoff/v1" || 0x00 || version || suite_id(6) || handoff_id(22)
  *        || SHA-256(capability)(32)
+ *        || SHA-256(canonical form contract)(32)    — version >= 3 only
  *
  * Authenticated but never transmitted; both sides derive it independently, so a
  * ciphertext sealed for one handoff/version/suite cannot be opened as another.
  * `aad` stays empty per RFC 9180 §8.1.
+ *
+ * The contract digest is appended only from version 3, so v1 and v2 `info` stay
+ * **byte-identical** to what they have always been — the RFC 9180 vectors and every
+ * existing ciphertext keep working, and the suite pins that rather than assuming it.
+ *
+ * What the extra 32 bytes buy, stated narrowly: the page seals under the contract it was
+ * served, and the broker opens under the contract it stored. If those differ — a relabelled
+ * field, a `secret` retyped as `text`, a swapped consumer — the AEAD does not open, the drop
+ * stays pending, and the attempt is charged to the existing failure budget. It does **not**
+ * authenticate the JavaScript the server sent, and it does **not** identify the submitter.
+ * Neither is claimed anywhere.
  */
-export function buildInfo({ handoffId, capabilityHash: capHash, version = ENVELOPE_VERSION }) {
+export function buildInfo({
+  handoffId,
+  capabilityHash: capHash,
+  version = ENVELOPE_VERSION,
+  contractDigest = null,
+}) {
   if (typeof handoffId !== 'string' || handoffId.length !== HANDOFF_ID_LENGTH) {
     throw new TypeError('handoffId must be a fixed-length base64url id');
   }
   if (!(capHash instanceof Uint8Array) || capHash.length !== 32) {
     throw new TypeError('capabilityHash must be 32 bytes');
   }
+  // Fail closed both ways: a contract-bound version without a digest would silently seal
+  // an unbound ciphertext, and a digest on an older version would change bytes that other
+  // deployments already depend on.
+  const bindsContract = version >= CONTRACT_BOUND_VERSION;
+  if (bindsContract && (typeof contractDigest !== 'string' || !CONTRACT_DIGEST_HEX.test(contractDigest))) {
+    throw new TypeError('contractDigest must be 64 lowercase hex characters');
+  }
+  if (!bindsContract && contractDigest !== null) {
+    throw new TypeError('contractDigest is only bound from version 3');
+  }
   const label = utf8(INFO_LABEL);
   const id = utf8(handoffId);
   const suite = suiteCodePointBytes();
-  const info = new Uint8Array(label.length + 1 + 1 + suite.length + id.length + capHash.length);
+  const digest = bindsContract ? hexToBytes(contractDigest) : new Uint8Array(0);
+  const info = new Uint8Array(
+    label.length + 1 + 1 + suite.length + id.length + capHash.length + digest.length,
+  );
   let offset = 0;
   info.set(label, offset); offset += label.length;
   info[offset] = 0x00; offset += 1;
   info[offset] = version; offset += 1;
   info.set(suite, offset); offset += suite.length;
   info.set(id, offset); offset += id.length;
-  info.set(capHash, offset);
+  info.set(capHash, offset); offset += capHash.length;
+  info.set(digest, offset);
   return info;
 }
 

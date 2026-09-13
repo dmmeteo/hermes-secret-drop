@@ -9,6 +9,8 @@
 //     envelope cannot be replayed into another handoff;
 //   - only the one allowlisted suite is accepted from metadata.
 import { base64UrlToBytes, bytesToBase64Url, isBase64Url } from '../base64url.js';
+import { deliveryFor, formContractDigest, validateFormContract } from '../form-contract.js';
+import { FORM_ENVELOPE_VERSION, PAYLOAD_KIND_FORM, encodeFormContainer } from '../form-container.js';
 import {
   FILE_ENVELOPE_VERSION,
   PAYLOAD_KIND_FILES,
@@ -47,6 +49,7 @@ export const SUBMIT_PATH = '/api/submit';
  * cannot accidentally declare the other lane.
  */
 export function declarationForEnvelope(envelope) {
+  if (envelope?.v === FORM_ENVELOPE_VERSION) return PAYLOAD_KIND_FORM;
   return envelope?.v === FILE_ENVELOPE_VERSION ? PAYLOAD_KIND_FILES : PAYLOAD_KIND_TEXT;
 }
 
@@ -71,8 +74,11 @@ export async function fetchMetadata({ capability, fetchImpl = fetch, origin = ''
   // a `files` drop that did not say v2, or a `text` drop that did not say v1, is
   // a broker this page does not understand, and the safe reading of that is the
   // same unavailable as everything else.
-  const expectedVersion =
-    metadata.payload_kind === PAYLOAD_KIND_FILES ? FILE_ENVELOPE_VERSION : ENVELOPE_VERSION;
+  const expectedVersion = metadata.payload_kind === PAYLOAD_KIND_FILES
+    ? FILE_ENVELOPE_VERSION
+    : metadata.payload_kind === PAYLOAD_KIND_FORM
+      ? FORM_ENVELOPE_VERSION
+      : ENVELOPE_VERSION;
   if (metadata.v !== expectedVersion || metadata.suite !== SUITE_ID) return null;
   // A universal link is checked harder, not less: it is the one response that
   // leaves this page a choice, so every part of the choice has to be the one this
@@ -94,6 +100,44 @@ export async function fetchMetadata({ capability, fetchImpl = fetch, origin = ''
       return null;
     }
   }
+  // A form link is checked hardest of the three, because its descriptor is the only one
+  // this page *acts* on rather than merely renders: the fields it draws, the rules it
+  // enforces and the identity it seals under all come out of this object. So the page
+  // re-validates the contract with the same module the broker used, and then checks that
+  // the digest it derives is the digest the broker says it expects. A disagreement here is
+  // a broker this page cannot honour, and the honest reading of that is the same
+  // `unavailable` as everything else — taken before anything has been sealed.
+  //
+  // This is a coherence check, not an authentication one. It cannot tell a hostile server
+  // from an honest one: a server that served a different contract *and* its matching digest
+  // agrees with itself perfectly. What it catches is the disagreement — a descriptor
+  // altered in transit, or a broker whose stored contract is not what it published — and
+  // that is the case the AEAD binding turns into a refusal rather than a wrong question.
+  if (metadata.payload_kind === PAYLOAD_KIND_FORM) {
+    const checked = validateFormContract({
+      contract: metadata.form_contract,
+      maxFiles: metadata.max_files,
+    });
+    if (!checked.ok || checked.contract === null) return null;
+    const delivery = metadata.delivery;
+    if (!delivery || typeof delivery !== 'object') return null;
+    if (delivery.mode !== 'model' && delivery.mode !== 'consumer') return null;
+    const derived = deliveryFor(checked.contract, delivery.consumer ?? null);
+    if (derived.mode !== delivery.mode || derived.consumer !== (delivery.consumer ?? null)) return null;
+    const versions = metadata.envelope_versions;
+    if (!versions || typeof versions !== 'object' || versions.form !== FORM_ENVELOPE_VERSION) return null;
+    if (
+      typeof metadata.payload_declaration !== 'string' ||
+      metadata.payload_declaration.toLowerCase() !== PAYLOAD_DECLARATION_HEADER.toLowerCase()
+    ) {
+      return null;
+    }
+    if (await formContractDigest(checked.contract, derived) !== metadata.contract_digest) return null;
+    // The page renders and seals the contract it just re-derived, not the object it was
+    // handed: they are equal by the check above, and using the validated one means no
+    // unvalidated caller data reaches the renderer.
+    metadata.form_contract = checked.contract;
+  }
   if (!isBase64Url(metadata.hid) || !isBase64Url(metadata.pk)) return null;
   if (base64UrlToBytes(metadata.pk).length !== PUBLIC_KEY_BYTES) return null;
   return metadata;
@@ -109,7 +153,7 @@ export async function fetchMetadata({ capability, fetchImpl = fetch, origin = ''
  * container. Callers do not choose the version freely — they take it from the
  * metadata they were served.
  */
-export async function sealBytesEnvelope({ capability, metadata, bytes, version }) {
+export async function sealBytesEnvelope({ capability, metadata, bytes, version, contractDigest = null }) {
   const suite = createSuite();
   const publicKeyBytes = base64UrlToBytes(metadata.pk);
   const recipientPublicKey = await suite.kem.deserializePublicKey(publicKeyBytes);
@@ -117,6 +161,7 @@ export async function sealBytesEnvelope({ capability, metadata, bytes, version }
     handoffId: metadata.hid,
     capabilityHash: await capabilityHash(capability),
     version,
+    contractDigest,
   });
 
   const { ct, enc } = await suite.seal({ recipientPublicKey, info }, bytes, EMPTY_AAD);
@@ -142,6 +187,40 @@ export async function sealEnvelope({ capability, metadata, plaintext }) {
     });
   } finally {
     pt.fill(0);
+  }
+}
+
+/**
+ * The form path: one HDROP3 container, envelope v3, sealed under the contract's own digest.
+ *
+ * The digest comes from the metadata the broker served and was re-derived from the contract
+ * in `fetchMetadata` before this can be reached — so the page never seals under an identity
+ * it has not itself computed from the fields it is about to draw.
+ */
+export async function sealFormEnvelope({ capability, metadata, values = [], files = [] }) {
+  const container = await encodeFormContainer({
+    contractDigest: metadata.contract_digest,
+    values,
+    files,
+    // A form whose contract declares no file group is served no file caps at all, because
+    // it has no file lane to cap. The codec's own defaults stand in: nothing will be
+    // measured against them, since the container carries no file bytes.
+    limits: metadata.max_files === undefined ? undefined : {
+      maxFiles: metadata.max_files,
+      maxFileBytes: metadata.max_file_bytes,
+      maxTotalBytes: metadata.max_total_bytes,
+    },
+  });
+  try {
+    return await sealBytesEnvelope({
+      capability,
+      metadata,
+      bytes: container,
+      version: FORM_ENVELOPE_VERSION,
+      contractDigest: metadata.contract_digest,
+    });
+  } finally {
+    container.fill(0);
   }
 }
 

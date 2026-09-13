@@ -136,6 +136,19 @@ import {
   fileContainerCeiling,
   narrowFileLimits,
 } from './file-container.js';
+import {
+  deliveryFor,
+  formContractDigest,
+  validateFormContract,
+  validateSubmission,
+} from './form-contract.js';
+import {
+  FORM_ENVELOPE_VERSION,
+  PAYLOAD_KIND_FORM,
+  decodeFormContainer,
+  decodeFormValuesSync,
+  formContainerCeiling,
+} from './form-container.js';
 import { validateFormRequest } from './form-request.js';
 import { createOutboundDrops } from './outbound-drop.js';
 import {
@@ -184,6 +197,7 @@ export const PAYLOAD_KINDS = Object.freeze([
   PAYLOAD_KIND_TEXT,
   PAYLOAD_KIND_FILES,
   PAYLOAD_KIND_UNIVERSAL,
+  PAYLOAD_KIND_FORM,
 ]);
 
 /**
@@ -192,6 +206,17 @@ export const PAYLOAD_KINDS = Object.freeze([
  * sender chooses, never something a submission may claim to be.
  */
 export const PAYLOAD_DECLARATIONS = Object.freeze([PAYLOAD_KIND_TEXT, PAYLOAD_KIND_FILES]);
+
+/**
+ * Every lane a *submission* may name, which is the two above plus `form`.
+ *
+ * Kept separate from `PAYLOAD_DECLARATIONS` rather than folded into it, because that list
+ * is also what a universal link *advertises* as its choices — and `form` is never one of
+ * them. A universal link has no contract, so there is nothing for a form submission to be
+ * validated against; `resolveSubmitKind` refuses the combination outright rather than
+ * letting a declaration conjure a shape the link was never minted with.
+ */
+export const SUBMIT_DECLARATIONS = Object.freeze([...PAYLOAD_DECLARATIONS, PAYLOAD_KIND_FORM]);
 
 /**
  * The request header the declaration rides in, following the capability's own
@@ -305,6 +330,12 @@ export function createBroker(config, logger = console) {
     if (payloadKind === PAYLOAD_KIND_TEXT) {
       return { maxPayloadBytes: config.maxPlaintextBytes, envelopeVersion: ENVELOPE_VERSION };
     }
+    if (payloadKind === PAYLOAD_KIND_FORM) {
+      return {
+        maxPayloadBytes: formContainerCeiling(limits),
+        envelopeVersion: FORM_ENVELOPE_VERSION,
+      };
+    }
     return { maxPayloadBytes: null, envelopeVersion: null };
   }
 
@@ -331,6 +362,28 @@ export function createBroker(config, logger = console) {
       declaration === PAYLOAD_KIND_FILES
     ) return record;
     return null;
+  }
+
+  /**
+   * The structured answer a form drop was submitted with, read back out of the container
+   * at claim time.
+   *
+   * Returns the contract identity alongside the values so a caller can prove that what it
+   * received answers the contract it asked for, without having to trust that the two ever
+   * travelled together. Values are an ordered array, exactly as they are on the wire — the
+   * broker never builds an object keyed by a field id, so a hostile id has nowhere to land
+   * even here.
+   */
+  function claimFormValues(record, plaintext) {
+    const decoded = decodeFormValuesSync(plaintext, {
+      contractDigest: record.contractDigest,
+      limits: record.fileLimits,
+    });
+    return {
+      contract_digest: record.contractDigest,
+      delivery: record.delivery,
+      values: decoded.values.map((entry) => ({ field: entry.field, value: entry.value })),
+    };
   }
 
   /** Canonical full retry identity, including the resolved declaration. */
@@ -373,9 +426,12 @@ export function createBroker(config, logger = console) {
    */
   function resolveSubmitKind(record, declaration) {
     if (declaration !== undefined && declaration !== null) {
-      if (!PAYLOAD_DECLARATIONS.includes(declaration)) return null;
+      if (!SUBMIT_DECLARATIONS.includes(declaration)) return null;
     }
     if (record.mintedKind === PAYLOAD_KIND_UNIVERSAL) {
+      // A universal link was minted without a contract, so there is nothing a form
+      // submission could be validated against. Refused rather than resolved.
+      if (declaration === PAYLOAD_KIND_FORM) return null;
       return declaration ?? PAYLOAD_KIND_TEXT;
     }
     if (declaration && declaration !== record.payloadKind) return null;
@@ -571,6 +627,10 @@ export function createBroker(config, logger = console) {
       handoffId: record.handoffId,
       capabilityHash: record.capabilityHash,
       version: envelopeVersion,
+      // Bound from v3 only, so v1 and v2 `info` stay byte-identical to what every existing
+      // deployment already builds. A page that was served a different contract than the one
+      // stored here derives different bytes and its ciphertext simply does not open.
+      contractDigest: envelopeVersion >= 3 ? record.contractDigest : null,
     });
 
     let plaintext;
@@ -651,12 +711,69 @@ export function createBroker(config, logger = console) {
       }
     }
 
+    // A form drop's payload has to *be* a container that answers this drop's contract
+    // before the record may reach `submitted`, on exactly the terms a file drop's does.
+    // Two checks, and the second is the one the whole engine rests on: the container has to
+    // decode, and the values in it have to satisfy the contract that was minted — required
+    // fields present and non-blank, no unknown ids, no duplicates, every value inside its
+    // type's ceiling, every file group inside its own bounds.
+    //
+    // This is the authoritative seam, and it is a real one: the broker holds the private
+    // key, so this is the first moment plaintext exists at all. The page runs the same
+    // check from the same module, which makes it a courtesy to the sender and evidence of
+    // nothing. Nothing here claims a broker can validate ciphertext.
+    //
+    // The decoded values are deliberately *not* kept on the record. `plaintext` stays the
+    // container, which is one zeroizable buffer; the claim seam decodes it again. Holding
+    // the values as JavaScript strings would put a copy of every secret somewhere
+    // `zeroize` cannot reach, for the whole time the drop sits submitted.
+    if (kind === PAYLOAD_KIND_FORM) {
+      let decoded;
+      try {
+        decoded = await decodeFormContainer(plaintext, {
+          contractDigest: record.contractDigest,
+          limits: record.fileLimits,
+        });
+      } catch (error) {
+        if (!(error instanceof FileContainerError)) throw error;
+        zeroize(plaintext);
+        record.containerFailures += 1;
+        logger.warn?.(
+          `handoff form container rejected hid=${record.handoffId} code=${error.code} ` +
+            `count=${record.containerFailures}`,
+        );
+        if (record.containerFailures >= config.maxAeadFailures) destroy(record, 'container_failures');
+        return UNAVAILABLE;
+      }
+
+      const answered = validateSubmission({
+        contract: record.formContract,
+        values: decoded.values,
+        files: decoded.files,
+      });
+      if (!answered.ok) {
+        zeroize(plaintext);
+        record.containerFailures += 1;
+        // The reason code, never the value and never the label: this line reaches a local
+        // log, and the field id it names is the requester's own machine name.
+        logger.warn?.(
+          `handoff form submission refused hid=${record.handoffId} reason=${answered.reason} ` +
+            `field=${answered.field ?? '-'} count=${record.containerFailures}`,
+        );
+        if (record.containerFailures >= config.maxAeadFailures) destroy(record, 'container_failures');
+        return UNAVAILABLE;
+      }
+
+      fileCount = decoded.files.length;
+      fileTotalBytes = decoded.totalBytes;
+    }
+
     // Synchronous single-use gate: no await between check and mutation.
     if (record.state !== 'pending') {
       zeroize(plaintext);
       return UNAVAILABLE;
     }
-    if (kind === PAYLOAD_KIND_FILES) {
+    if (kind === PAYLOAD_KIND_FILES || (kind === PAYLOAD_KIND_FORM && record.reservedBytes > 0)) {
       if (record.reservedBytes === 0) {
         // No pre-body lease was taken, so this is an in-process caller that went
         // straight to `submit` rather than through `acquireSubmitSlot`. The budget
@@ -729,7 +846,14 @@ export function createBroker(config, logger = console) {
      * may never carry a file at all, and pre-reserving would let four idle
      * text-capable links exhaust a budget for bytes nobody sent.
      */
-    async create({ ttlSeconds = config.ttlSeconds, payloadKind = PAYLOAD_KIND_TEXT, maxFiles, form } = {}) {
+    async create({
+      ttlSeconds = config.ttlSeconds,
+      payloadKind = PAYLOAD_KIND_TEXT,
+      maxFiles,
+      form,
+      formContract,
+      consumer = null,
+    } = {}) {
       if (!PAYLOAD_KINDS.includes(payloadKind)) return INVALID_REQUEST;
       if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0 || ttlSeconds > config.maxTtlSeconds) {
         return INVALID_REQUEST;
@@ -738,12 +862,21 @@ export function createBroker(config, logger = console) {
 
       const isFiles = payloadKind === PAYLOAD_KIND_FILES;
       const isUniversal = payloadKind === PAYLOAD_KIND_UNIVERSAL;
+      const isForm = payloadKind === PAYLOAD_KIND_FORM;
+      // The two descriptors are alternatives, never a pair. A caller that sent both asked
+      // two different questions about the same drop, and guessing which one it meant is
+      // exactly the silent precedence this project refuses everywhere else.
+      if (isForm && form !== undefined && form !== null) return INVALID_REQUEST;
+      if (!isForm && formContract !== undefined && formContract !== null) return INVALID_REQUEST;
+      if (isForm && (formContract === undefined || formContract === null)) return INVALID_REQUEST;
       // A requester may narrow the file count and never raise it; nonsense is
       // read as "no narrowing asked for", which is what the codec's own resolver
       // does with a model tool's argument. A universal link carries the file limits
       // too: they are half of what its metadata advertises, and the ceiling its file
       // lane is measured against.
-      const limits = isFiles || isUniversal ? narrowFileLimits(fileLimits, { maxFiles }) : null;
+      const limits = isFiles || isUniversal || isForm
+        ? narrowFileLimits(fileLimits, { maxFiles })
+        : null;
       // Validated here, against the limits this drop actually ended up with rather
       // than against the ones that were asked for: an exact count has to be checked
       // against the narrowed ceiling, or a descriptor could name a count the drop
@@ -757,12 +890,39 @@ export function createBroker(config, logger = console) {
         maxFiles: limits === null ? undefined : limits.maxFiles,
       });
       if (!descriptor.ok) return INVALID_REQUEST;
+
+      // The contract is validated against the limits this drop actually ended up with, and
+      // before anything is reserved or minted — a contract that will be refused must not
+      // take file budget on its way to being refused. The control seam validates first and
+      // reports which rule broke; this is the authority, and it is what an in-process
+      // caller meets too.
+      let contract = null;
+      let delivery = null;
+      let contractDigest = null;
+      if (isForm) {
+        const checked = validateFormContract({ contract: formContract, maxFiles: limits.maxFiles });
+        if (!checked.ok || checked.contract === null) return INVALID_REQUEST;
+        contract = checked.contract;
+        // Derived here, from the field types, and never taken from the caller: this is the
+        // whole of "a tool argument cannot choose a public result type". A consumer name is
+        // only ever *recorded* — the authority that a consumer is installed and willing sits
+        // in the plugin, before this call.
+        delivery = deliveryFor(contract, typeof consumer === 'string' ? consumer : null);
+        if (delivery.mode === 'consumer' && delivery.consumer === null) return INVALID_REQUEST;
+        contractDigest = await formContractDigest(contract, delivery);
+      }
+
       const { maxPayloadBytes, envelopeVersion } = payloadShapeFor(payloadKind, limits);
       // The reservation is the ceiling the broker will actually enforce on this
       // drop's plaintext, so the two can never disagree. A universal drop has no
       // such ceiling yet, and reserves when its file lane is declared.
-      const reservedBytes = isFiles ? maxPayloadBytes : 0;
-      if (isFiles && !reserveFileBytes(reservedBytes)) {
+      // A form drop reserves only when its contract actually has a file group. A form of
+      // four text fields cannot carry a file byte, and pre-reserving 42 MiB for it would let
+      // four such links exhaust a budget for bytes nobody can send.
+      const formCarriesFiles = isForm && contract.fields.some((field) => field.type === 'files');
+      const reservesFileBudget = isFiles || formCarriesFiles;
+      const reservedBytes = reservesFileBudget ? maxPayloadBytes : 0;
+      if (reservesFileBudget && !reserveFileBytes(reservedBytes)) {
         // Not a caller mistake and not a statement about any one handoff, so it
         // gets the same uniform refusal as everything else. Nothing is minted.
         logger.warn?.(
@@ -812,6 +972,18 @@ export function createBroker(config, logger = console) {
            */
           form: descriptor.form,
           /**
+           * The effective form contract this drop was minted with, or null. Unlike `form`
+           * above — which is display data the page renders and nothing more — this one is
+           * *enforced*: its digest is bound into the AEAD, the broker re-validates every
+           * submitted value against it, and the delivery block on it decides whether the
+           * values may ever reach a model at all.
+           */
+          formContract: contract,
+          /** `{ mode, consumer }`, derived from the field types at mint. Never caller-set. */
+          delivery,
+          /** SHA-256 of the canonical contract+delivery pair, lowercase hex. */
+          contractDigest,
+          /**
            * The exact file count this drop will accept, or null for "up to
            * `fileLimits.maxFiles`". Lifted out of the descriptor because it is the
            * one field in it that is *enforced* rather than rendered, and a check
@@ -859,13 +1031,25 @@ export function createBroker(config, logger = console) {
           ttl_seconds: ttlSeconds,
           payload_kind: payloadKind,
         };
-        const fileCaps = isFiles || isUniversal
+        const fileCaps = isFiles || isUniversal || formCarriesFiles
           ? {
               max_files: limits.maxFiles,
               max_file_bytes: limits.maxFileBytes,
               max_total_bytes: limits.maxTotalBytes,
             }
           : {};
+        // The requester is told the identity its drop was minted under so it can record
+        // it and later check that what came back answers the contract it asked for. It is
+        // a digest of non-secret display data, so publishing it discloses nothing.
+        if (isForm) {
+          return {
+            ...created,
+            max_plaintext_bytes: config.maxPlaintextBytes,
+            ...fileCaps,
+            contract_digest: contractDigest,
+            delivery_mode: delivery.mode,
+          };
+        }
         // A universal link quotes both caps, because the requester chose neither
         // lane and may not be told about only one of them. A typed drop quotes only
         // its own: the secret cap says nothing about a container, and the file caps
@@ -932,6 +1116,30 @@ export function createBroker(config, logger = console) {
         max_file_bytes: record.fileLimits.maxFileBytes,
       };
       if (record.payloadKind === PAYLOAD_KIND_FILES) return { ...common, ...fileCaps };
+
+      // A form link: the contract it was minted with, the identity that contract has, and
+      // the two facts the page cannot infer — the lane it must declare and the envelope
+      // version that lane is sealed with.
+      //
+      // Unlike `form` above, this descriptor *is* bound: the page derives
+      // SHA-256(canonical contract + delivery) from exactly these bytes and seals under it,
+      // and the broker opens under the digest it stored. A contract altered between here
+      // and the page therefore produces a ciphertext that does not open, rather than a
+      // form that quietly asks a different question. `contract_digest` is published beside
+      // it so the page can be sure it derived what the broker expects rather than
+      // discovering the disagreement as an unexplained refusal.
+      if (record.payloadKind === PAYLOAD_KIND_FORM) {
+        return {
+          ...common,
+          form_contract: record.formContract,
+          delivery: record.delivery,
+          contract_digest: record.contractDigest,
+          envelope_versions: { form: FORM_ENVELOPE_VERSION },
+          payload_declaration: PAYLOAD_DECLARATION_HEADER,
+          max_plaintext_bytes: config.maxPlaintextBytes,
+          ...fileCaps,
+        };
+      }
 
       // A universal link: one response, both lanes, and the three facts a page
       // cannot be asked to infer — which lanes it may choose between, which version
@@ -1178,6 +1386,11 @@ export function createBroker(config, logger = console) {
       // the way it says nothing about everything else. The payload stays
       // `submitted` and one-shot, waiting for the framed transfer of slice 3.
       if (record.payloadKind === PAYLOAD_KIND_FILES) return UNAVAILABLE;
+      // A form drop that carries files is claimed over the framed transfer for the same
+      // reason a files drop is: a container is not a secret to be base64'd into one
+      // newline-delimited line. A form of value fields only has no such problem, and
+      // answering it here is what lets the ordinary claim path stay one round trip.
+      if (record.payloadKind === PAYLOAD_KIND_FORM && record.fileCount > 0) return UNAVAILABLE;
 
       if (record.plaintext.length > maxPayloadBytes) {
         logger.info?.(
@@ -1190,6 +1403,18 @@ export function createBroker(config, logger = console) {
       }
 
       const plaintext = record.plaintext;
+      if (record.payloadKind === PAYLOAD_KIND_FORM) {
+        // Decoded here rather than kept from submit time, so the only copy of these values
+        // that outlives the request is the container the caller is about to consume. The
+        // container was fully validated on the way in, so this decode cannot fail on
+        // anything a submitter controls — a throw here is a broker defect, and it is
+        // allowed to propagate as one rather than becoming a uniform refusal that hides it.
+        const claimed = claimFormValues(record, plaintext);
+        record.plaintext = null;
+        retire(record);
+        zeroize(plaintext);
+        return { ok: true, handoff_id: handoffId, form: claimed };
+      }
       record.plaintext = null; // detached before retiring, so it is not zeroized
       retire(record);
       return { ok: true, handoff_id: handoffId, plaintext };

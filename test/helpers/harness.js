@@ -17,7 +17,7 @@ import {
   newClaimId,
   revealSecret,
 } from '../../src/client/reveal-client.js';
-import { fetchMetadata, sealBytesEnvelope, sealEnvelope } from '../../src/client/handoff-client.js';
+import { fetchMetadata, sealBytesEnvelope, sealFormEnvelope, sealEnvelope } from '../../src/client/handoff-client.js';
 import { receiveFileClaim } from '../../src/file-claim-client.js';
 import { FILE_ENVELOPE_VERSION, encodeFileContainer } from '../../src/file-container.js';
 import { parseOutboundFragment } from '../../src/outbound-envelope.js';
@@ -154,6 +154,49 @@ export async function createUniversalDrop(broker, { ttlSeconds = 120, maxFiles, 
  * that skips the transfer — a test that could retire a container without moving it
  * would be pinning a claim path production does not have.
  */
+/**
+ * Mints one **form** drop from a declarative contract and hands back everything a browser
+ * would have: the metadata the page fetched, a sealer that builds the HDROP3 container
+ * through the production client, and a `send` that carries the `form` declaration.
+ *
+ * Everything goes through the production paths, so nothing here agrees with the broker by
+ * construction — the contract is validated twice by the real validators and the digest the
+ * test seals under is the one `fetchMetadata` re-derived, not one the test computed.
+ */
+export async function createFormDrop(
+  broker,
+  { ttlSeconds = 120, contract, consumer, maxFiles } = {},
+) {
+  const request = { op: 'create', payload_kind: 'form', ttl_seconds: ttlSeconds, form_contract: contract };
+  if (consumer !== undefined) request.consumer = consumer;
+  if (maxFiles !== undefined) request.max_files = maxFiles;
+  const created = await broker.control(request);
+  if (!created.ok) return { created, capability: null, metadata: null };
+
+  const capability = splitHandoffUrl(created.url).capability;
+  const metadata = await fetchMetadata({ capability, origin: broker.baseUrl });
+  return {
+    created,
+    id: created.handoff_id,
+    capability,
+    metadata,
+    expiresAt: created.expires_at,
+    seal: ({ values, files }) => sealFormEnvelope({ capability, metadata, values, files }),
+    send: async (envelope, { declaration = 'form' } = {}) => {
+      const response = await fetch(`${broker.baseUrl}/api/submit`, {
+        method: 'POST',
+        headers: {
+          'x-handoff-capability': capability,
+          'content-type': 'application/json',
+          ...(declaration === null ? {} : { [PAYLOAD_DECLARATION_HEADER]: declaration }),
+        },
+        body: JSON.stringify(envelope),
+      });
+      return response.ok ? 'received' : 'unavailable';
+    },
+  };
+}
+
 export function claimFileDrop(broker, handoffId, options) {
   return receiveFileClaim(broker.controlSocketPath, handoffId, options);
 }

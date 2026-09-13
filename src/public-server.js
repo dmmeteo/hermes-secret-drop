@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-import { PAYLOAD_DECLARATIONS, PAYLOAD_DECLARATION_HEADER } from './broker.js';
+import { PAYLOAD_DECLARATIONS, PAYLOAD_DECLARATION_HEADER, SUBMIT_DECLARATIONS } from './broker.js';
 
 /** The single generic unavailable body shared by every failure path. */
 export const UNAVAILABLE_JSON = '{"status":"unavailable"}';
@@ -41,7 +41,7 @@ const REVEAL_BODY_OVERRUN_BYTES = 4096;
  * re-exported from the broker that owns and advertises it. It is read here, before
  * the body, because it is what decides how large that body may be.
  */
-export { PAYLOAD_DECLARATIONS, PAYLOAD_DECLARATION_HEADER };
+export { PAYLOAD_DECLARATIONS, PAYLOAD_DECLARATION_HEADER, SUBMIT_DECLARATIONS };
 
 
 const PUBLIC_DIR = fileURLToPath(new URL('./public/', import.meta.url));
@@ -244,7 +244,7 @@ async function handle(request, response, context) {
     // passed through as absence, which a universal drop reads as text for the
     // documented compatibility window.
     const declaration = request.headers[PAYLOAD_DECLARATION_HEADER];
-    if (declaration !== undefined && !PAYLOAD_DECLARATIONS.includes(declaration)) {
+    if (declaration !== undefined && !SUBMIT_DECLARATIONS.includes(declaration)) {
       sendUnavailable(response, config);
       return log(404);
     }
