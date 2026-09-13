@@ -47,6 +47,15 @@ Existing interfaces become universal rather than adding parallel file variants:
 >
 > ~~The model must not choose or predict the payload kind when requesting the drop.
 > The sender decides in the browser.~~
+>
+> **Extended again (declarative form engine).** A requester may now send a whole
+> *contract* — an ordered list of named, typed fields — as `payload_kind: "form"`, and
+> the dispatch list above gains a third row: `form` → values keyed by stable id, or the
+> no-model consumer lane when any field is a `secret`. The accepted canon is
+> `docs/DECLARATIVE_FORM_ENGINE.md`; read that rather than this plan for the inbound
+> form. The three protections listed above are unchanged, and the form contract adds a
+> fourth: unlike the descriptor, it is bound into the AEAD, so it cannot be altered
+> between the broker and the page without the ciphertext failing to open.
 
 ### Browser
 

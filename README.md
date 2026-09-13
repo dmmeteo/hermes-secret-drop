@@ -262,6 +262,24 @@ told to ask for a new drop.
 it still loads the plugin — the claim then returns a placeholder the model
 cannot resolve, and the plugin says so in `agent.log`.
 
+### Declarative forms
+
+A request can be an **ordered combination of fields** rather than one box: a username and
+a password, a named API key, or a release tag with two independent groups of log files.
+Each field has a stable id, a concrete label and one of five types (`text`, `email`,
+`textarea`, `secret`, `files`), and the values come back keyed by those ids.
+
+It is an engine, not a set of presets — `docs/DECLARATIVE_FORM_ENGINE.md` is the canon.
+Two consequences worth knowing before you use it:
+
+- **a `secret` field requires an authorized no-model consumer, and none ships.** The
+  whole submission goes to that consumer and the model gets a value-free receipt. With
+  nothing installed — which is every deployment today — a secret form is refused at mint
+  rather than asking someone for a password Drop could not deliver privately;
+- **everything else works normally.** Text, email and multiline values come back to the
+  model keyed by id (redacted into durable state exactly as a claimed secret always was),
+  and file groups are spooled exactly as files have always been.
+
 ## Threat model
 
 **Trusted with the plaintext, by design:** the host running the broker, its root
@@ -661,11 +679,18 @@ src/broker.js                   in-memory state, single-use gates, HPKE open
 src/public-server.js            page, assets, /api/metadata, /api/submit, headers
 src/control-server.js           0600 Unix socket, newline-delimited JSON admin path
 src/hpke-suite.js               suite, code points, info construction (shared with the browser)
+src/form-contract.js            the declarative form schema, canonical form and digest
+src/form-container.js           HDROP3: named values and per-field file groups
+src/form-request.js             the older label/description/expect_files descriptor
 src/notice.js                   the one chat message, its three fixed states and its card
 src/client/                     browser: metadata fetch, seal, submit, countdown
+src/client/form-view.js         draws a form contract; DOM only, no policy
+scripts/lib/cdp.mjs             headless-browser machinery for the preview runs
 src/public/                     index.html, app.css (assets/app.js is generated)
 test/                           broker seams, HPKE vectors, page wiring, wake contract
 integrations/hermes-drop/       the Hermes plugin
+  drop/form_contract.py         the form schema's Python twin, held to one case table
+  drop/consumers.py             the no-model consumer boundary (ships with none)
 integrations/hermes-drop/tests/ the plugin's pytest suite
 integrations/drop-skill/        the stock Hermes `/drop [prompt]` skill command
 integrations/claude-code/       standalone Claude Code command prompt

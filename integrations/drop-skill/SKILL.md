@@ -65,6 +65,50 @@ the user: `mode: text` means they cannot attach the file they meant to send.
 No `mode` is the universal form, which always works — it is the fallback, not
 a failure.
 
+### Ask for several things at once
+
+When you need more than one named thing, send a `form` instead — an ordered list
+of fields, each with a stable `id`, a concrete `label` and a `type`. The values
+come back keyed by those ids.
+
+```
+form: {
+  version: 1,
+  title: "Staging console sign-in",
+  description: "Use the staging account, not your personal one.",
+  fields: [
+    { id: "username", type: "text",   label: "Username", required: true },
+    { id: "password", type: "secret", label: "Password", required: true }
+  ]
+}
+```
+
+Types: `text`, `email`, `textarea`, `secret` (masked), and `files` (one named
+group, with its own `min_files`/`max_files`). At most eight fields.
+
+**Use concrete labels.** `Email` **or** `Username` — never "Username or email".
+The person is filling in one box and needs to know which thing goes in it. Name
+a secret for what it is: `OPENROUTER_API_KEY`, not "the key".
+
+**Ids are machine names, labels are for people.** Ids must be unique and look
+like `api_key`. Labels need not be unique — two file groups may honestly both be
+captioned "Log files" — but if a person cannot tell two fields apart from their
+labels alone, pick better labels.
+
+**`form` replaces the four arguments above; never send both.** Sending a `form`
+alongside `mode`, `label`, `description` or `expect_files` is refused outright,
+because they are two different requests and guessing which you meant would answer
+a question you did not ask.
+
+**A `secret` field needs an authorized consumer, and usually there is not one.**
+A form containing any `secret` field is delivered to a host-side consumer that
+the model never sees the values from — you get a receipt naming the fields, and
+no values at all. If no consumer is installed, the request is **refused outright**
+rather than asking someone for a password Drop cannot deliver privately. So do
+not reach for `secret` unless you know one is configured; ask for the non-secret
+fields you actually need, or say in the conversation that this deployment cannot
+take a secret this way.
+
 **The form is in English; `description` is the one exception.** Every string the
 page draws for itself — the Hermes Drop row, the heading defaults, the input
 label, the button, the file counts, the status line and every error — is

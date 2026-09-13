@@ -538,6 +538,58 @@ Two rendering rules complete it, and they are stronger than the schema:
   an active network attacker, and `crypto.subtle` does not exist outside a secure
   context.
 
+## The declarative form engine
+
+Product canon: `docs/DECLARATIVE_FORM_ENGINE.md`. The security-relevant half is here.
+
+**What the contract digest binds, and what it does not.** From envelope version 3 the
+HPKE `info` binds `SHA-256` of the canonical form contract *and its derived delivery
+block* alongside the version, suite, handoff id and capability hash. The page seals under
+the contract it was served; the broker opens under the contract it stored. A descriptor
+altered in transit — a relabelled field, a `secret` retyped as `text`, a swapped consumer
+— therefore produces a ciphertext that does not open: the drop stays pending and the
+attempt is charged to the existing AEAD failure budget.
+
+That binds *agreement between two stored values*. It does **not** authenticate the
+JavaScript the server served, and it does **not** identify the submitter. A server that
+serves a different contract together with its matching digest agrees with itself
+perfectly, and nothing here would notice. Versions 1 and 2 build `info` byte-identically
+to what they always have, which the suite pins.
+
+**Where submitted values are validated.** On the decoded plaintext, in the broker, after
+the AEAD opens — which is the first moment plaintext exists at all, because the broker
+holds the private key. The page runs the same rules from the same module; that copy is a
+convenience for the sender and is evidence of nothing. A refused submission consumes
+nothing: the drop stays pending and a correct submission still wins, charged to the same
+bounded container-failure budget a malformed container is.
+
+**Field ids cannot reach a prototype.** Two independent reasons: the id grammar
+(`^[a-z][a-z0-9_]{0,31}$`, plus `constructor` and `prototype` denied by name), and the
+fact that values travel as an ordered array rather than an object keyed by id — on the
+wire, in the manifest, through the broker and into the consumer.
+
+**The no-model consumer boundary, stated honestly.** A form containing any `secret` field
+is bound at mint to a named consumer and the whole submission is delivered to it in one
+call; the model receives a receipt built by framework code from the validated contract
+and a fixed status enum. A consumer contributes a status and nothing else, and no
+exception text is ever quoted into a result or a log.
+
+Three things this is not:
+
+- it is **not** a sandbox. A consumer is host code running as the host user; one that
+  wants to exfiltrate a value can do so without returning it. The boundary prevents
+  *accidental* return, and keeps secret values out of tool results, durable session
+  state, logs and notices;
+- it is **not** in use. Nothing is registered, so every secret form is refused at mint
+  with `secret_consumer_unavailable`. The canary consumer is a test fixture and is not
+  vault, BWS or `.env` integration;
+- it is **not** exactly-once. Drop is one-shot, so a consumer is called at most once per
+  drop, but that is not the same as its side effect happening at most once. A stable
+  `delivery_token` is provided for sinks that support idempotency keys.
+
+**A public link still proves capability possession, not identity.** Unchanged by this
+work, and the reason no privileged account or config write is reachable from a form.
+
 ## Known limitations tracked rather than fixed
 
 - **The form descriptor is authorized and bounded, but not cryptographically
