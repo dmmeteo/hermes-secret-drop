@@ -311,6 +311,8 @@ async def create(
     notice_platform: Optional[str] = None,
     payload_kind: Optional[str] = None,
     form: Optional[Mapping[str, Any]] = None,
+    form_contract: Optional[Mapping[str, Any]] = None,
+    consumer: Optional[str] = None,
     socket_path: Optional[PathLike] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
@@ -330,6 +332,16 @@ async def create(
     # `create_outbound_drop` this op stays safe to log and to retry.
     if form:
         request["form"] = dict(form)
+    # The declarative contract travels as one object for the same reason, and is the
+    # alternative to `form` rather than a companion to it -- the broker refuses the pair
+    # by name. Nothing in it is secret either: it is the *questions*, never the answers.
+    if form_contract:
+        request["form_contract"] = dict(form_contract)
+    # Recorded so the broker can bind it into the contract digest. The broker cannot
+    # authorize it and does not try: whether this consumer is installed and willing was
+    # settled on this side, before this call.
+    if consumer:
+        request["consumer"] = consumer
     return await control_request(request, socket_path=socket_path, timeout=timeout)
 
 

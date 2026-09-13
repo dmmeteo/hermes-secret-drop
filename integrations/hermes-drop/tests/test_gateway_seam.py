@@ -127,6 +127,8 @@ class RecordingService:
         purpose="",
         payload_kind="universal",
         form=None,
+        form_contract=None,
+        consumer=None,
         session_key="",
     ):
         srcs = self._sources
@@ -138,6 +140,12 @@ class RecordingService:
                 # display data and the routing identity is not influenced by it.
                 "payload_kind": payload_kind,
                 "form": form,
+                # Recorded for the same reason as `form`: a declarative contract is the
+                # *questions*, never the answers, and it must not influence routing
+                # either. `consumer` is recorded beside it because it is the one piece
+                # of the delivery contract resolved on this side of the socket.
+                "form_contract": form_contract,
+                "consumer": consumer,
                 "session_key": session_key,
                 "routing_tuple": tuple(origin.routing_tuple),
                 "context_tuple": srcs.routing_tuple_from_context() if srcs else None,

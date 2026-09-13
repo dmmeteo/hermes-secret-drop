@@ -71,14 +71,12 @@ def test_parameter_names_are_an_exact_allowlist(schemas, schema_name: str) -> No
         # `purpose` is the audit journal's label and never leaves the plugin. The
         # four form fields are the opposite: browser display data, never journalled.
         # Both directions are pinned in test_tools.py.
-        "request_private_input": {
-            "purpose",
-            "minutes",
-            "mode",
-            "expect_files",
-            "description",
-            "label",
-        },
+                    # `form` is the declarative contract — the engine. The four flat arguments
+            # beside it are the reviewed adaptive descriptor, kept working and
+            # normalised into the same contract rather than dropped.
+            "request_private_input": {
+                "purpose", "minutes", "mode", "label", "description", "expect_files", "form",
+            },
         "claim_private_input": {"drop_id"},
         # No destination, and no free-text body either: the payload is a list of
         # labelled fields so the page can render a Copy button per value and mask the

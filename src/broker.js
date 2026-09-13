@@ -381,6 +381,10 @@ export function createBroker(config, logger = console) {
     });
     return {
       contract_digest: record.contractDigest,
+      // The contract itself, not only its digest: the claimant builds its value-free
+      // receipt out of these field ids, and a receipt assembled from a contract the
+      // claimant merely remembered would be a receipt for whatever it last saw.
+      contract: record.formContract,
       delivery: record.delivery,
       values: decoded.values.map((entry) => ({ field: entry.field, value: entry.value })),
     };

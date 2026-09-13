@@ -116,6 +116,16 @@ MIDDLEWARE_KIND = "llm_request"
 #: constant sentence in the durable row.
 SECRET_FIELD = "private_input"
 NOTE_FIELD = "private_input_note"
+
+#: The declarative form engine's result field: an ordered list of ``{id, value}`` for a
+#: contract whose delivery mode is ``model``. Each value is stashed individually, so the
+#: durable row keeps one placeholder per field rather than one for the whole answer --
+#: which is what lets the model substitute the two it needs without resolving the third.
+#:
+#: A form bound to a *consumer* never reaches here at all: its values are not in the
+#: result to stash, because the service handed the whole bundle to the consumer and
+#: built a value-free receipt instead (``drop/service.py``, ``_deliver_form``).
+VALUES_FIELD = "private_values"
 NOTE = (
     "This value is held in gateway memory only and substituted into the model "
     "request; it is never written to Hermes' durable session state. If you are "
@@ -289,10 +299,40 @@ def redact_tool_result(payload: Any, *, session_id: str) -> Any:
     payload unchanged on a surprise would serialise the surprise into
     ``state.db``, which is the one outcome this module exists to prevent.
     """
-    if not isinstance(payload, Mapping) or SECRET_FIELD not in payload:
+    if not isinstance(payload, Mapping):
         return payload
+    if SECRET_FIELD in payload:
+        redacted = dict(payload)
+        redacted[SECRET_FIELD] = stash(payload[SECRET_FIELD], session_id=session_id)
+        redacted[NOTE_FIELD] = NOTE
+        return redacted
+    if VALUES_FIELD in payload:
+        return _redact_values(payload, session_id=session_id)
+    return payload
+
+
+def _redact_values(payload: Mapping[str, Any], *, session_id: str) -> Any:
+    """Stash every value of a structured form result, one placeholder each.
+
+    Fails closed exactly as :func:`stash` does. A shape this does not recognise -- a
+    non-list, an entry that is not a mapping, an id that is not a string -- raises
+    rather than passing through, because passing through is what would serialise a
+    secret into ``state.db``, and that is the one outcome this module exists to prevent.
+    """
+    entries = payload[VALUES_FIELD]
+    if not isinstance(entries, list):
+        raise VaultError("private_values must be a list")
+    redacted_entries = []
+    for entry in entries:
+        if not isinstance(entry, Mapping) or set(entry) != {"id", "value"}:
+            raise VaultError("private_values entries must be {id, value}")
+        if not isinstance(entry["id"], str):
+            raise VaultError("private_values ids must be strings")
+        redacted_entries.append(
+            {"id": entry["id"], "value": stash(entry["value"], session_id=session_id)}
+        )
     redacted = dict(payload)
-    redacted[SECRET_FIELD] = stash(payload[SECRET_FIELD], session_id=session_id)
+    redacted[VALUES_FIELD] = redacted_entries
     redacted[NOTE_FIELD] = NOTE
     return redacted
 

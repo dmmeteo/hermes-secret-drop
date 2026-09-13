@@ -43,6 +43,9 @@ import logging
 from typing import Any, Dict, Mapping, Optional
 
 from . import bridge as bridge_mod
+from . import config
+from . import consumers as consumers_mod
+from . import form_contract as form_contract_mod
 from . import form_request as form_request_mod
 from . import origin as origin_module
 from . import render
@@ -140,6 +143,70 @@ def _parse_form(args: Mapping[str, Any], payload_kind: str) -> Any:
         return _invalid(refused.detail)
 
 
+#: The flat arguments of the reviewed adaptive descriptor. Kept working, and named here
+#: because they are exactly the set that may not accompany a declarative `form`.
+_LEGACY_DESCRIPTOR_ARGS = ("mode", "label", "description", "expect_files")
+
+
+def _parse_form_contract(args: Mapping[str, Any]) -> Any:
+    """The declarative contract and the consumer it needs, or an ``invalid_request``.
+
+    Everything here happens **before** the origin is resolved and long before anything
+    is minted, for the reason the descriptor path gives: a contract the broker would
+    refuse must not cost a handoff on its way to being refused, and there is no destroy
+    op to take one back.
+
+    Three outcomes, in the order they are decided:
+
+      - no ``form`` at all: ``None``, and the caller takes the legacy path unchanged;
+      - a ``form`` alongside any flat descriptor argument: refused by name, because the
+        two express different requests and picking one by precedence would silently
+        answer a question the caller did not ask;
+      - a ``form`` that contains a ``secret`` field: an authorized consumer must resolve
+        **now**, or the whole request is refused. This is the fail-closed gate, and it
+        is the reason a secret form is unusable on a deployment with no consumer
+        installed. Saying so plainly to the model is the point.
+    """
+    raw = args.get("form")
+    if raw is None:
+        return None
+
+    present = [name for name in _LEGACY_DESCRIPTOR_ARGS if args.get(name) is not None]
+    if present:
+        return _invalid(
+            "form cannot be combined with mode, label, description or expect_files — "
+            "use one or the other"
+        )
+
+    try:
+        contract = form_contract_mod.validate_form_contract(raw)
+    except form_contract_mod.FormContractRejected as refused:
+        # The code names the rule and never the value: this becomes a tool result,
+        # which reaches the model's context and from there durable session state.
+        return _invalid(f"form rejected: {refused.reason}")
+    if contract is None:
+        return None
+
+    consumer_name = None
+    if form_contract_mod.has_secret_field(contract):
+        consumer_name = config.secret_consumer_name()
+        try:
+            consumers_mod.resolve_consumer(consumer_name, contract)
+        except consumers_mod.ConsumerUnavailable as unavailable:
+            if unavailable.code == "secret_consumer_rejected":
+                return _invalid(
+                    "the authorized consumer will not accept this form — "
+                    "ask for the values another way"
+                )
+            return _invalid(
+                "this form asks for a secret, and no authorized consumer is installed "
+                "to receive one — Drop will not ask a user for a secret it cannot "
+                "deliver privately. Ask for non-secret fields, or ask the operator to "
+                "install a consumer."
+            )
+    return {"contract": contract, "consumer": consumer_name}
+
+
 def _resolved_origin(runner: Any) -> Any:
     if runner is _RUNNER_UNSET:
         return origin_module.resolve_origin()
@@ -181,9 +248,20 @@ def request_private_input(
     if isinstance(payload_kind, dict):
         return payload_kind
 
-    form = _parse_form(args, payload_kind)
-    if isinstance(form, dict) and "error" in form:
-        return form
+    contract = _parse_form_contract(args)
+    if isinstance(contract, dict) and "error" in contract:
+        return contract
+
+    form = None
+    if contract is None:
+        form = _parse_form(args, payload_kind)
+        if isinstance(form, dict) and "error" in form:
+            return form
+    else:
+        # A declarative contract is its own payload kind. `mode` cannot have been given
+        # alongside it -- the conflict check above refuses that -- so nothing is being
+        # overridden here.
+        payload_kind = "form"
 
     resolved = _resolved_origin(runner)
     if isinstance(resolved, dict):
@@ -204,6 +282,8 @@ def request_private_input(
                 purpose=purpose,
                 payload_kind=payload_kind,
                 form=form,
+                form_contract=None if contract is None else contract["contract"],
+                consumer=None if contract is None else contract["consumer"],
                 session_key=sources.session_key_from_context(),
             ),
             timeout=bridge_mod.CREATE_TIMEOUT_SECONDS,

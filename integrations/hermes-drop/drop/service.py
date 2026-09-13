@@ -56,6 +56,8 @@ import logging
 import time
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from . import consumers as consumers_mod
+from . import form_contract as form_contract_mod
 from . import form_request
 from . import journal as journal_mod
 from . import render
@@ -168,6 +170,7 @@ class DropService:
         deliver: Optional[Callable[..., Any]] = None,
         clock: Callable[[], float] = time.time,
         spool: Any = None,
+        consumer_registry: Any = None,
     ) -> None:
         from . import control_client
         from . import messenger as messenger_mod
@@ -180,6 +183,12 @@ class DropService:
         self._waiters = waiters if waiters is not None else waiter_mod.REGISTRY
         self._deliver = deliver
         self._clock = clock
+        # The closed consumer table this service resolves secret deliveries against.
+        # `None` means the shipped one, which is EMPTY -- so a secret form fails closed
+        # on any real deployment. Injected rather than mutated globally so a test can
+        # exercise this exact resolution path with a synthetic consumer without leaving
+        # a writable registry lying around in production.
+        self._consumer_registry = consumer_registry
         # ``None`` means "the configured one", resolved at claim time rather than
         # here: constructing a ``Spool`` is free, but a service is built in
         # processes that never claim a file.
@@ -195,6 +204,8 @@ class DropService:
         purpose: str = "",
         payload_kind: str = "universal",
         form: Optional[Mapping[str, Any]] = None,
+        form_contract: Optional[Mapping[str, Any]] = None,
+        consumer: Optional[str] = None,
         session_key: str = "",
     ) -> Dict[str, Any]:
         """Mint a handoff, post its link into *origin*'s conversation, and arm.
@@ -229,6 +240,11 @@ class DropService:
             # exactly the call it always made, which is what keeps every caller that
             # predates this -- and every client stub written against it -- unchanged.
             **({} if form is None else {"form": form}),
+            # Same rule for the declarative contract, and the two are never both
+            # present: `drop/tools.py` refuses the combination by name before it gets
+            # here, and the broker refuses it again as the authority.
+            **({} if form_contract is None else {"form_contract": form_contract}),
+            **({} if consumer is None else {"consumer": consumer}),
             socket_path=self._socket_path,
         )
         if not created.get("ok"):
@@ -241,7 +257,9 @@ class DropService:
         drop_id = created.get("handoff_id") or ""
         notice = created.get("notice") or ""
 
-        refusal = self._guard_descriptor(created, payload_kind=payload_kind, form=form)
+        refusal = self._guard_descriptor(
+            created, payload_kind=payload_kind, form=form, form_contract=form_contract
+        )
         if refusal is not None:
             # Before the post, for the reason below: nothing has been asked of anyone
             # yet, and the minted handoff lapses at its own TTL unseen.
@@ -304,6 +322,7 @@ class DropService:
         *,
         payload_kind: str,
         form: Optional[Mapping[str, Any]],
+        form_contract: Optional[Mapping[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Will this broker actually honour what was asked for?
 
@@ -323,6 +342,20 @@ class DropService:
         `files` drop correctly but still drop the descriptor, and a typed request whose
         copy and count vanished is not the request that was made.
         """
+        # A declarative contract needs a strictly newer broker than a descriptor does,
+        # and the two floors are checked separately rather than collapsed: a broker at
+        # form_protocol 1 can honour a descriptor perfectly and cannot honour a contract
+        # at all, so telling a descriptor caller it needs an upgrade would be false.
+        if form_contract is not None:
+            if form_contract_mod.supports_form_contract(created):
+                return None
+            return {
+                "error": ERROR_BROKER_UNAVAILABLE,
+                "detail": (
+                    "this broker cannot render a declarative form; retry without the "
+                    "form argument"
+                ),
+            }
         if form is None and payload_kind == "universal":
             return None
         if form_request.broker_enforces_descriptor(created):
@@ -488,6 +521,14 @@ class DropService:
                 return {"error": ERROR_RESPONSE_TOO_LARGE}
             return {"error": ERROR_UNAVAILABLE}
 
+        # A form drop answers with structure, and the decision the whole engine turns on
+        # is made right here: a contract bound to a consumer never becomes a tool result
+        # with values in it, no matter what the caller asked for. There is no argument
+        # that reaches this branch and no way to ask for the other one.
+        form = result.get("form")
+        if isinstance(form, dict):
+            return self._deliver_form(drop_id, form)
+
         encoded = result.get("plaintext_b64")
         if not encoded:
             # After a successful claim the broker keeps a payload-free receipt
@@ -505,6 +546,90 @@ class DropService:
         if not self._record_claim(drop_id):
             claimed["note"] = UNRECORDED_CLAIM_NOTE
         return claimed
+
+    def _deliver_form(self, drop_id: str, form: Mapping[str, Any]) -> Dict[str, Any]:
+        """Route one claimed form to the model or to its authorized consumer.
+
+        The delivery mode is read off the *claim response*, which carries the contract
+        the broker actually bound and not the one this process happens to remember. That
+        matters after a restart: a reconciled claim has no in-memory context, and a mode
+        recovered from local state could be a mode for a different drop.
+
+        Everything that can refuse, refuses before a value moves. If the consumer named
+        by the bound contract is gone, renamed, or no longer accepts it, the claim fails
+        closed and delivers nothing -- the drop is already spent, which is a real cost,
+        but handing a secret to a consumer the operator did not authorize *now* would be
+        worse than losing it.
+        """
+        delivery = form.get("delivery") or {}
+        values = form.get("values") or []
+        if not isinstance(values, list):
+            return {"error": ERROR_UNAVAILABLE}
+        pairs = tuple(
+            (entry.get("field"), entry.get("value"))
+            for entry in values
+            if isinstance(entry, dict)
+        )
+
+        if delivery.get("mode") != "consumer":
+            # The ordinary path: values back to the model, keyed by their stable ids,
+            # under a key the vault redacts by construction (drop/vault.py).
+            claimed: Dict[str, Any] = {
+                "ok": True,
+                "drop_id": drop_id,
+                "private_values": [{"id": field_id, "value": value} for field_id, value in pairs],
+            }
+            if not self._record_claim(drop_id):
+                claimed["note"] = UNRECORDED_CLAIM_NOTE
+            return claimed
+
+        contract = form.get("contract")
+        digest = form.get("contract_digest") or ""
+        name = delivery.get("consumer")
+        if not isinstance(contract, dict) or not isinstance(name, str):
+            # The broker said "consumer" without saying which, or without the contract
+            # the receipt has to be built from. Nothing is delivered and nothing is
+            # reported beyond the uniform refusal.
+            return {"error": ERROR_UNAVAILABLE}
+
+        try:
+            consumer = consumers_mod.resolve_consumer(
+                name, contract, registry=self._consumer_registry
+            )
+        except consumers_mod.ConsumerUnavailable as unavailable:
+            logger.error(
+                "hermes-drop: drop %s was minted for consumer %r, which is not available "
+                "now (%s). The values were not delivered and were not returned.",
+                drop_id,
+                name,
+                unavailable.code,
+            )
+            self._record_claim(drop_id)
+            return {"error": unavailable.code}
+
+        token = consumers_mod.delivery_token(drop_id, digest, name)
+        bundle = consumers_mod.SecretBundle(
+            drop_id=drop_id,
+            contract=contract,
+            contract_digest=digest,
+            delivery_token=token,
+            values=pairs,
+        )
+        status = consumers_mod.deliver_bundle(consumer, bundle)
+        # Built here, from the contract and the status -- never from anything the
+        # consumer returned. See drop/consumers.py for why this is a construction and
+        # not a filter.
+        receipt = consumers_mod.build_receipt(
+            drop_id=drop_id,
+            contract=contract,
+            consumer_name=name,
+            status=status,
+            token=token,
+            submitted_field_ids=[field_id for field_id, _ in pairs],
+        )
+        if not self._record_claim(drop_id):
+            receipt["note"] = UNRECORDED_CLAIM_NOTE
+        return receipt
 
     # -- send, the other direction ------------------------------------------
 

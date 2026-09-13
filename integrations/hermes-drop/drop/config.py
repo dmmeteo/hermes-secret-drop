@@ -97,6 +97,29 @@ def _read_plugin_config(key: str) -> Optional[str]:
     return "" if raw is None else str(raw).strip()
 
 
+#: Operator key naming the authorized no-model consumer for secret form submissions.
+SECRET_CONSUMER_ENV = "HERMES_DROP_SECRET_CONSUMER"
+SECRET_CONSUMER_CONFIG_KEY = "secret_consumer"
+
+
+def secret_consumer_name() -> Optional[str]:
+    """The consumer an operator has authorized for secret forms, or ``None``.
+
+    ``None`` is the shipped state and the safe one: with no name configured, a form
+    containing a ``secret`` field is refused at mint. A name that is configured but not
+    in the closed registry (``drop/consumers.py``) is refused the same way -- naming a
+    consumer does not install one, and this function deliberately cannot install
+    anything. It reads a string; resolution and authorization happen in ``consumers``.
+    """
+    raw = os.environ.get(SECRET_CONSUMER_ENV)
+    if raw is None:
+        raw = _read_plugin_config(SECRET_CONSUMER_CONFIG_KEY)
+    if raw is None:
+        return None
+    name = raw.strip()
+    return name or None
+
+
 def _read_plugin_config_socket() -> Optional[str]:
     return _read_plugin_config(CONTROL_SOCKET_CONFIG_KEY)
 

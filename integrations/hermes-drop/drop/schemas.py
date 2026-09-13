@@ -47,6 +47,105 @@ REQUEST_PRIVATE_INPUT: Dict[str, Any] = {
                 "maximum": 60,
                 "description": "Link lifetime. Default 30.",
             },
+            # The declarative form contract. This is the engine: instead of a growing
+            # set of presets, a request is an ORDERED COMBINATION of fields, and every
+            # shape the product needs is some combination of the five types below.
+            #
+            # Optional, like everything else here. Omit it and the caller gets exactly
+            # what it got before: the universal form, a textarea and a file picker,
+            # with the sender choosing.
+            #
+            # It is mutually exclusive with the older flat arguments (`mode`, `label`,
+            # `description`, `expect_files`), which are kept working and are normalised
+            # into this same contract. Sending both is refused rather than resolved by
+            # precedence -- two different questions about one drop.
+            "form": {
+                "type": "object",
+                "description": (
+                    "Ask for several named things at once. Fields are rendered in the "
+                    "order given and the values come back keyed by their ids. Use "
+                    "concrete labels the person will recognise — 'Email' OR 'Username', "
+                    "not 'Username or email' — and name a secret for what it is, e.g. "
+                    "'OPENROUTER_API_KEY'. Describe what to supply; make no claims about "
+                    "storage, retention, deletion or who sees it. Chrome, titles and "
+                    "labels are English; the description may be in the user's language. "
+                    "IMPORTANT: a form containing any 'secret' field is delivered to an "
+                    "authorized no-model consumer and you will receive a receipt with no "
+                    "values in it — never the secret. If no consumer is installed the "
+                    "request is refused outright, so do not ask for a secret field unless "
+                    "you know one is configured."
+                ),
+                "properties": {
+                    "version": {"type": "integer", "enum": [1], "description": "Always 1."},
+                    "title": {
+                        "type": "string",
+                        "description": "Form heading, English, <= 60 characters.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "One or two sentences saying what to supply, <= 300 "
+                            "characters. May be in the user's language."
+                        ),
+                    },
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 8,
+                        "description": "The fields, in the order they are shown.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": (
+                                        "Stable machine name the value comes back under: "
+                                        "lowercase letters, digits and underscore, "
+                                        "starting with a letter, <= 32 characters. Must "
+                                        "be unique within the form."
+                                    ),
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["text", "email", "textarea", "secret", "files"],
+                                    "description": (
+                                        "text: one line. email: one line, checked for "
+                                        "shape. textarea: several lines. secret: masked, "
+                                        "and requires an authorized consumer. files: one "
+                                        "group of files with its own count bounds."
+                                    ),
+                                },
+                                "label": {
+                                    "type": "string",
+                                    "description": (
+                                        "What the person reads, English, <= 40 "
+                                        "characters. Need not be unique — two file "
+                                        "groups may share a caption."
+                                    ),
+                                },
+                                "required": {
+                                    "type": "boolean",
+                                    "description": "Default false. A required field may not be left blank.",
+                                },
+                                "min_files": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 5,
+                                    "description": "Files fields only. Default 1.",
+                                },
+                                "max_files": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 5,
+                                    "description": "Files fields only. Default 1.",
+                                },
+                            },
+                            "required": ["id", "type", "label"],
+                        },
+                    },
+                },
+                "required": ["version", "fields"],
+            },
             # The four optional fields below let the form say what it is asking for.
             # Every one of them is OPTIONAL and every one of them defaults to the
             # behaviour that shipped before they existed: omit them all and the user

@@ -1,0 +1,754 @@
+{
+  "$comment": "Shared case table for the declarative form contract. Read by BOTH test/form-contract.test.js and integrations/hermes-drop/tests/test_form_contract.py, because two implementations of one schema is a drift risk and a table only one of them runs is a rule a caller meets inconsistently. `canonical` and `digest` are the bytes the HPKE info binds: a disagreement here is a drop that can never be opened.",
+  "accepted": [
+    {
+      "name": "ascii_credential_pair",
+      "consumer": "canary",
+      "contract": {
+        "version": 1,
+        "title": "Staging console sign-in",
+        "description": "Use the staging account, not your personal one.",
+        "fields": [
+          {
+            "id": "username",
+            "type": "text",
+            "label": "Username",
+            "required": true
+          },
+          {
+            "id": "password",
+            "type": "secret",
+            "label": "Password",
+            "required": true
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"Staging console sign-in\",\"description\":\"Use the staging account, not your personal one.\",\"fields\":[{\"id\":\"username\",\"type\":\"text\",\"label\":\"Username\",\"required\":true},{\"id\":\"password\",\"type\":\"secret\",\"label\":\"Password\",\"required\":true}],\"delivery\":{\"mode\":\"consumer\",\"consumer\":\"canary\"}}",
+      "delivery": {
+        "mode": "consumer",
+        "consumer": "canary"
+      }
+    },
+    {
+      "name": "named_api_key_no_title",
+      "consumer": "canary",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "api_key",
+            "type": "secret",
+            "label": "OPENROUTER_API_KEY",
+            "required": true
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"fields\":[{\"id\":\"api_key\",\"type\":\"secret\",\"label\":\"OPENROUTER_API_KEY\",\"required\":true}],\"delivery\":{\"mode\":\"consumer\",\"consumer\":\"canary\"}}",
+      "delivery": {
+        "mode": "consumer",
+        "consumer": "canary"
+      }
+    },
+    {
+      "name": "astral_unicode",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "title": "Ключ 🔑 доступу",
+        "description": "Вставте ключ із консолі 𝕏",
+        "fields": [
+          {
+            "id": "note",
+            "type": "textarea",
+            "label": "Нотатка 🔑",
+            "required": true
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"Ключ 🔑 доступу\",\"description\":\"Вставте ключ із консолі 𝕏\",\"fields\":[{\"id\":\"note\",\"type\":\"textarea\",\"label\":\"Нотатка 🔑\",\"required\":true}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    },
+    {
+      "name": "combining_marks",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "title": "Nom de l'hôte",
+        "fields": [
+          {
+            "id": "host",
+            "type": "text",
+            "label": "Hôte café",
+            "required": false
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"Nom de l'hôte\",\"fields\":[{\"id\":\"host\",\"type\":\"text\",\"label\":\"Hôte café\",\"required\":false}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    },
+    {
+      "name": "booleans_and_defaults",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A",
+            "required": true
+          },
+          {
+            "id": "b",
+            "type": "text",
+            "label": "B",
+            "required": false
+          },
+          {
+            "id": "c",
+            "type": "text",
+            "label": "C"
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"fields\":[{\"id\":\"a\",\"type\":\"text\",\"label\":\"A\",\"required\":true},{\"id\":\"b\",\"type\":\"text\",\"label\":\"B\",\"required\":false},{\"id\":\"c\",\"type\":\"text\",\"label\":\"C\",\"required\":false}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    },
+    {
+      "name": "two_file_groups_sharing_a_label",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "title": "Deployment evidence",
+        "fields": [
+          {
+            "id": "app_logs",
+            "type": "files",
+            "label": "Log files",
+            "required": true,
+            "min_files": 1,
+            "max_files": 2
+          },
+          {
+            "id": "conf_logs",
+            "type": "files",
+            "label": "Log files",
+            "min_files": 1,
+            "max_files": 2
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"Deployment evidence\",\"fields\":[{\"id\":\"app_logs\",\"type\":\"files\",\"label\":\"Log files\",\"required\":true,\"min_files\":1,\"max_files\":2},{\"id\":\"conf_logs\",\"type\":\"files\",\"label\":\"Log files\",\"required\":false,\"min_files\":1,\"max_files\":2}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    },
+    {
+      "name": "secret_with_files_is_supported",
+      "consumer": "canary",
+      "contract": {
+        "version": 1,
+        "title": "Rotate the deploy key",
+        "fields": [
+          {
+            "id": "passphrase",
+            "type": "secret",
+            "label": "Passphrase",
+            "required": true
+          },
+          {
+            "id": "key_file",
+            "type": "files",
+            "label": "Private key",
+            "required": true,
+            "min_files": 1,
+            "max_files": 1
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"Rotate the deploy key\",\"fields\":[{\"id\":\"passphrase\",\"type\":\"secret\",\"label\":\"Passphrase\",\"required\":true},{\"id\":\"key_file\",\"type\":\"files\",\"label\":\"Private key\",\"required\":true,\"min_files\":1,\"max_files\":1}],\"delivery\":{\"mode\":\"consumer\",\"consumer\":\"canary\"}}",
+      "delivery": {
+        "mode": "consumer",
+        "consumer": "canary"
+      }
+    },
+    {
+      "name": "quotes_and_backslashes",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "title": "He said \"go\"",
+        "fields": [
+          {
+            "id": "path",
+            "type": "text",
+            "label": "A \\ B",
+            "required": true
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"title\":\"He said \\\"go\\\"\",\"fields\":[{\"id\":\"path\",\"type\":\"text\",\"label\":\"A \\\\ B\",\"required\":true}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    },
+    {
+      "name": "all_optional_is_legal",
+      "consumer": null,
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "first",
+            "type": "text",
+            "label": "First"
+          },
+          {
+            "id": "second",
+            "type": "email",
+            "label": "Email"
+          }
+        ]
+      },
+      "canonical": "{\"version\":1,\"fields\":[{\"id\":\"first\",\"type\":\"text\",\"label\":\"First\",\"required\":false},{\"id\":\"second\",\"type\":\"email\",\"label\":\"Email\",\"required\":false}],\"delivery\":{\"mode\":\"model\",\"consumer\":null}}",
+      "delivery": {
+        "mode": "model",
+        "consumer": null
+      }
+    }
+  ],
+  "refused": [
+    {
+      "name": "not_an_object",
+      "contract": "nope",
+      "reason": "not_an_object"
+    },
+    {
+      "name": "array_is_not_an_object",
+      "contract": [],
+      "reason": "not_an_object"
+    },
+    {
+      "name": "unknown_version",
+      "contract": {
+        "version": 2,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_version"
+    },
+    {
+      "name": "boolean_version",
+      "contract": {
+        "version": true,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_version"
+    },
+    {
+      "name": "unknown_contract_key",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ],
+        "consumer": "canary"
+      },
+      "reason": "unknown_key"
+    },
+    {
+      "name": "no_fields",
+      "contract": {
+        "version": 1,
+        "fields": []
+      },
+      "reason": "no_fields"
+    },
+    {
+      "name": "too_many_fields",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          },
+          {
+            "id": "b",
+            "type": "text",
+            "label": "B"
+          },
+          {
+            "id": "c",
+            "type": "text",
+            "label": "C"
+          },
+          {
+            "id": "d",
+            "type": "text",
+            "label": "D"
+          },
+          {
+            "id": "e",
+            "type": "text",
+            "label": "E"
+          },
+          {
+            "id": "f",
+            "type": "text",
+            "label": "F"
+          },
+          {
+            "id": "g",
+            "type": "text",
+            "label": "G"
+          },
+          {
+            "id": "h",
+            "type": "text",
+            "label": "H"
+          },
+          {
+            "id": "i",
+            "type": "text",
+            "label": "I"
+          }
+        ]
+      },
+      "reason": "too_many_fields"
+    },
+    {
+      "name": "duplicate_id",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          },
+          {
+            "id": "a",
+            "type": "text",
+            "label": "B"
+          }
+        ]
+      },
+      "reason": "duplicate_field_id"
+    },
+    {
+      "name": "denied_id_constructor",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "constructor",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "denied_field_id"
+    },
+    {
+      "name": "denied_id_prototype",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "prototype",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "denied_field_id"
+    },
+    {
+      "name": "proto_id_fails_the_grammar",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "__proto__",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_field_id"
+    },
+    {
+      "name": "uppercase_id",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "Username",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_field_id"
+    },
+    {
+      "name": "id_starting_with_a_digit",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "1st",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_field_id"
+    },
+    {
+      "name": "id_too_long",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_field_id"
+    },
+    {
+      "name": "unknown_type",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "password",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_type"
+    },
+    {
+      "name": "missing_type",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_type"
+    },
+    {
+      "name": "min_files_on_a_text_field",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A",
+            "min_files": 1
+          }
+        ]
+      },
+      "reason": "unknown_key"
+    },
+    {
+      "name": "unknown_field_key",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A",
+            "placeholder": "hi"
+          }
+        ]
+      },
+      "reason": "unknown_key"
+    },
+    {
+      "name": "missing_label",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text"
+          }
+        ]
+      },
+      "reason": "unknown_key"
+    },
+    {
+      "name": "empty_label",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": ""
+          }
+        ]
+      },
+      "reason": "bad_label"
+    },
+    {
+      "name": "label_with_a_newline",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A\nB"
+          }
+        ]
+      },
+      "reason": "bad_label"
+    },
+    {
+      "name": "label_with_a_bidi_override",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "Note‮gpj.exe"
+          }
+        ]
+      },
+      "reason": "bad_label"
+    },
+    {
+      "name": "label_too_long",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "reason": "label_too_long"
+    },
+    {
+      "name": "title_too_long",
+      "contract": {
+        "version": 1,
+        "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "title_too_long"
+    },
+    {
+      "name": "non_boolean_required",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A",
+            "required": "yes"
+          }
+        ]
+      },
+      "reason": "bad_required"
+    },
+    {
+      "name": "zero_max_files",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "files",
+            "label": "A",
+            "max_files": 0
+          }
+        ]
+      },
+      "reason": "bad_files_bounds"
+    },
+    {
+      "name": "min_above_max",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "files",
+            "label": "A",
+            "min_files": 3,
+            "max_files": 2
+          }
+        ]
+      },
+      "reason": "bad_files_bounds"
+    },
+    {
+      "name": "boolean_max_files",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "files",
+            "label": "A",
+            "max_files": true
+          }
+        ]
+      },
+      "reason": "bad_files_bounds"
+    },
+    {
+      "name": "file_groups_over_budget",
+      "contract": {
+        "version": 1,
+        "fields": [
+          {
+            "id": "a",
+            "type": "files",
+            "label": "A",
+            "max_files": 5
+          },
+          {
+            "id": "b",
+            "type": "files",
+            "label": "B",
+            "max_files": 5
+          }
+        ]
+      },
+      "reason": "files_over_budget"
+    },
+    {
+      "name": "empty_title",
+      "contract": {
+        "version": 1,
+        "title": "",
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_title"
+    },
+    {
+      "name": "title_with_a_double_space",
+      "contract": {
+        "version": 1,
+        "title": "Sign  in",
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_title"
+    },
+    {
+      "name": "description_with_a_newline",
+      "contract": {
+        "version": 1,
+        "description": "One.\nTwo.",
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "bad_description"
+    },
+    {
+      "name": "description_too_long",
+      "contract": {
+        "version": 1,
+        "description": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "fields": [
+          {
+            "id": "a",
+            "type": "text",
+            "label": "A"
+          }
+        ]
+      },
+      "reason": "description_too_long"
+    },
+    {
+      "name": "fields_is_not_a_list",
+      "contract": {
+        "version": 1,
+        "fields": {
+          "id": "a"
+        }
+      },
+      "reason": "bad_field"
+    },
+    {
+      "name": "a_field_that_is_not_an_object",
+      "contract": {
+        "version": 1,
+        "fields": [
+          "username"
+        ]
+      },
+      "reason": "bad_field"
+    }
+  ]
+}
