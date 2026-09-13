@@ -166,6 +166,13 @@ export function renderFormFields({ document, list, contract, onChange = () => {}
           for (const file of entry.files) files.push({ field: entry.field.id, file });
           continue;
         }
+        // An optional field nobody touched is ABSENT, not empty. Sending `""` would
+        // tell the requester the question was answered with nothing, which is a
+        // different statement from not answering it — and on a form of five optional
+        // fields it would hand back four values that mean "the user ignored this".
+        // A *required* field cannot reach here empty: `problem()` refuses first, and
+        // the broker refuses again on its own copy of the rule.
+        if (entry.control.value === '') continue;
         values.push({ field: entry.field.id, value: entry.control.value });
       }
       return { values, files };
