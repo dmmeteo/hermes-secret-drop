@@ -114,6 +114,28 @@ def _resolve_runner() -> Any:
         return None
 
 
+def delivery_adapter_for(runner: Any, source: Any) -> Any:
+    """The live adapter that answers ``source``, or ``None``. May raise.
+
+    Hermes 0.21.5 split ``_adapter_for_source`` into ``_intake_adapter_for``
+    ("which bot received this") and ``_delivery_adapter_for`` ("which bot answers
+    it"), and removed the old name (upstream ``c70565ef30``). Drop posts and edits
+    in the conversation, so it asks the delivery question — which answers with the
+    receiving bot whenever that is known, exactly as the old helper did. 0.21.3
+    has only the old name.
+
+    A runner exposing neither is refused, never served from ``runner.adapters``:
+    a platform lookup would discard relay routing, transport provenance and the
+    profile checks, i.e. silently redirect.
+    """
+    for name in ("_delivery_adapter_for", "_adapter_for_source"):
+        seam = getattr(runner, name, None)
+        if callable(seam):
+            return seam(source)
+    logger.warning("hermes-drop: gateway runner exposes no adapter-resolution seam; refusing")
+    return None
+
+
 def resolve_origin(
     *,
     registry: Optional[sources.SourceRegistry] = None,
@@ -174,8 +196,8 @@ def resolve_origin(
         # The REAL object goes in, so the relay branch
         # (``delivered_via_upstream_relay``) and the transport-provenance branch
         # (``_transport_adapter_ref``) both work, and a stamped secondary profile
-        # fails closed (``gateway/authz_mixin.py:80-149``).
-        adapter = live_runner._adapter_for_source(source)
+        # fails closed (``gateway/authz_mixin.py``).
+        adapter = delivery_adapter_for(live_runner, source)
     except Exception:
         logger.warning("hermes-drop: adapter resolution raised", exc_info=True)
         return _err(ERROR_NO_ADAPTER)
@@ -200,5 +222,6 @@ __all__ = [
     "ERROR_ORIGIN_MISMATCH",
     "ERROR_ORIGIN_UNVERIFIED",
     "Origin",
+    "delivery_adapter_for",
     "resolve_origin",
 ]

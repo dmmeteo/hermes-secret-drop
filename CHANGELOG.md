@@ -208,6 +208,15 @@ and reads none of them, and behaves exactly as it did before.
   by `MAX_ANNOUNCE_ATTEMPTS` (5), so the model can be told again to claim a drop it
   already holds — bounded, answered `unavailable`, and named in `SECURITY.md`.
 
+### Fixed
+
+- **Compatible with Hermes 0.21.5 (`v2026.9.24`).** Hermes removed
+  `_adapter_for_source` and split it into intake and delivery seams. Because adapter
+  resolution fails closed, the plugin refused every request, reveal and restart
+  re-post with `no_adapter`. It now asks `_delivery_adapter_for` when present and
+  `_adapter_for_source` otherwise (Hermes 0.21.3). A runner with neither is refused;
+  there is no platform-lookup fallback.
+
 ## [0.4.0] — 2026-08-03
 
 First public release.

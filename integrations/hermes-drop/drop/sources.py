@@ -12,7 +12,7 @@ user_name / session_key / message_id / profile and nothing else
 ``parent_chat_id``/``chat_id_alt``/``user_id_alt``, and cannot carry
 ``delivered_via_upstream_relay``, which is deliberately excluded from
 ``to_dict`` (``gateway/session.py:194-206``) and is precisely what
-``_adapter_for_source`` keys relay delivery off (``gateway/authz_mixin.py:110-119``).
+the gateway's adapter resolution keys relay delivery off (``gateway/authz_mixin.py``).
 A hand-built source also has no ``_transport_adapter_ref``, so
 ``_registered_transport_adapter`` returns ``None`` and per-credential transport
 provenance is discarded (``:128-149``).

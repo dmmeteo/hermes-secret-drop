@@ -345,7 +345,7 @@ def _deferred_pass_can_make_progress(runner: Any = None, *, registry: Any = None
     Otherwise it asks the question the pass itself will ask —
     :func:`origin_for_entry` — and not the weaker "is the lane in the registry?".
     A lane can be registered and still unresolvable: the stored source can
-    disagree with its own index, the runner can be gone, ``_adapter_for_source``
+    disagree with its own index, the runner can be gone, adapter resolution
     can raise or answer ``None``. Gating on registration alone turned every one
     of those into a reconcile pass on *every* inbound message for as long as the
     condition lasted — the pass-per-message failure ``MAX_FAILED_PASSES`` exists
@@ -991,7 +991,7 @@ def origin_for_entry(
     if runner is None:
         return None
     try:
-        adapter = runner._adapter_for_source(source)
+        adapter = origin_mod.delivery_adapter_for(runner, source)
     except Exception:
         logger.warning("hermes-drop: adapter resolution raised during reconcile", exc_info=True)
         return None
