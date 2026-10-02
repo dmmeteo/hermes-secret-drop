@@ -5,3 +5,9 @@
 # conversion are turned off here. Regenerate these files with format-patch; never
 # hand-edit them.
 patches/** -whitespace -text
+
+# Licensed fonts and their licence texts, shipped byte-for-byte as their authors
+# publish them (the Fixel licence has CRLF endings and both have a trailing space).
+# No whitespace checking or end-of-line conversion: the licence is quoted, not edited.
+src/public/fonts/*.woff2 binary
+src/public/fonts/OFL-*.txt -whitespace -text

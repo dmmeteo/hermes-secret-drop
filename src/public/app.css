@@ -1,396 +1,693 @@
-/* "Quiet document" — the accepted visual direction. No logo or header chrome,
-   one textarea and one full-width button, system light/dark, and a restrained
-   violet/blue accent that carries Hermes identity without branding the page. */
+/* "Aperture" — the accepted visual direction (DESIGN.md). One-time passage, drawn as
+   interrupted contour rings with one lime path through them; ink-violet material,
+   Fixel for the voice and Geist Mono for the page's own annotations; one rounded
+   input surface and one pill action. Written for the narrow window first, because
+   that is where most drops are opened: the wide layout is the enhancement.
 
+   Deliberately absent: retro window chrome, hard offset shadows, poster or banner
+   art, gradient buttons. The art is a background, never a block a person scrolls
+   past to reach the field. */
+
+/* Self-hosted and licensed (src/public/fonts/README.md). `font-src 'self'` is the
+   only fetch the CSP allows for them, and `swap` keeps the form usable on the system
+   face for the moment before they arrive. */
+@font-face { font-family: "Fixel Display"; src: url("/assets/fonts/FixelDisplay-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Fixel Text"; src: url("/assets/fonts/FixelText-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/assets/fonts/GeistMono-Regular-latin.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
+/* Light is mapped role by role rather than inverted: the lime is a fill in both
+   themes, and wherever lime would have been TEXT on paper it becomes olive, because
+   lime on a light ground is unreadable. */
 :root {
   color-scheme: light dark;
-  --ink: #161616;
-  --muted: #707070;
-  --line: #dedbd5;
-  --paper: #fff;
-  --accent: #6d55d8;
-  --accent2: #3f7edb;
-  --ok: #19704a;
-  --ok-wash: #e1f2e9;
-  --idle-wash: #eee;
-  --idle-ink: #777;
-  --wash: #f4f1ff;
+  --display: "Fixel Display", ui-sans-serif, system-ui, sans-serif;
+  --text: "Fixel Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --canvas: #f4f1ec;
+  --surface: #fffdf9;
+  --ink: #201c2d;
+  --muted: #4f4560;
+  --meta: #5e536f;
+  --control-line: #85789a;
+  --rule: #d3cad9;
+  --accent: #d5ed83;
+  --accent-hover: #c8e266;
+  --on-accent: #26212e;
+  --accent-ink: #4a6300;
+  --focus: #6a45c2;
+  --focus-wash: #6a45c22e;
+  --ok-wash: #e6f2c2;
+  --idle-wash: #e7e2ea;
+  --selection: #d5ed83;
+  --on-selection: #201c2d;
+
+  /* The art's own palette: quieter on paper, where the rings would otherwise read
+     as a drawing rather than a texture. */
+  --wash-in: #b493c9;
+  --wash-in-opacity: .32;
+  --ring-a: #a08bb2;
+  --ring-b: #8a6fa0;
+  --ring-c: #6d5584;
+  --passage: #7f9b1e;
+  --tick: #8f81a0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #201c2d;
+    --surface: #2a233a;
+    --ink: #f1eee8;
+    --muted: #c4b9ce;
+    --meta: #aa9bb9;
+    --control-line: #806e90;
+    --rule: #5a4d68;
+    --accent: #d5ed83;
+    --accent-hover: #e3f6a7;
+    --on-accent: #26212e;
+    --accent-ink: #d5ed83;
+    --focus: #d5ed83;
+    --focus-wash: #d5ed8320;
+    --ok-wash: #34402a;
+    --idle-wash: #332b44;
+    --selection: #d5ed83;
+    --on-selection: #201c2d;
+
+    --wash-in: #9667ad;
+    --wash-in-opacity: .37;
+    --ring-a: #92749f;
+    --ring-b: #ccabd6;
+    --ring-c: #e5d9e5;
+    --passage: #d5ed83;
+    --tick: #cbb8d5;
+  }
 }
 
 * { box-sizing: border-box; }
 
+html { background: var(--canvas); }
+
 body {
   margin: 0;
   color: var(--ink);
-  background: radial-gradient(circle at 50% 0, var(--wash) 0, transparent 34%), var(--paper);
-  font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--canvas);
+  font: 16px/1.5 var(--text);
+  font-synthesis: none;
+  -webkit-text-size-adjust: 100%;
+  caret-color: var(--focus);
 }
 
-button, textarea, input { font: inherit; }
+::selection { color: var(--on-selection); background: var(--selection); }
+
+button, textarea, input { font: inherit; color: inherit; }
 
 [hidden] { display: none !important; }
-
-.quiet-document {
-  display: grid;
-  place-items: center;
-  min-height: 100svh;
-  padding: 42px 18px calc(52px + env(safe-area-inset-bottom));
-}
-
-.quiet-document > section { width: min(100%, 620px); }
-
-.copy { max-width: 520px; }
-.mode-switch { display:flex; gap:8px; margin-top:24px; }
-.mode-switch button { padding:8px 16px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--ink); cursor:pointer; }
-.mode-switch button[aria-pressed="true"] { color:#fff; background:var(--accent); border-color:var(--accent); }
-/* The inbound composer. One quiet identity row, one heading, one supporting line, the
-   input, one action -- and the order is the design. Everything here is scoped to
-   #form or to a class only the inbound screen uses, because the outbound reveal shares
-   this stylesheet and was deliberately not redesigned. */
-
-/* Identity left, clock right, both small. This replaces an uppercase eyebrow stacked
-   above a heading that said "Hermes" again, and it gives the countdown a home of its
-   own instead of burying it mid-sentence in a paragraph of prose. */
-.drop-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; font-size:13px; color:var(--muted); }
-.drop-id { font-weight:600; }
-.drop-clock { display:inline-flex; align-items:center; gap:6px; color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
-.drop-clock::before { content:'\25F7'; color:var(--accent); }
 
 /* Reachable by a screen reader, invisible to everyone else: the heading already names
    the input, so a second visible label would be the same words twice. */
 .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 
-.file-panel { margin:20px 0 0; }
+/* ── the shell ──────────────────────────────────────────────────────────────── */
 
-/* A <button>, so it is focusable and operable from the keyboard -- which the <label>
-   this replaced never was. The resets undo the UA button styling. */
-.drop-zone { display:grid; place-items:center; width:100%; min-height:120px; padding:20px; border:2px dashed var(--line); border-radius:10px; background:transparent; color:var(--ink); font:inherit; cursor:pointer; text-align:center; }
-.drop-zone:hover { border-color:var(--accent); }
-.drop-zone:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-.drop-zone.drag { border-color:var(--accent); background:var(--wash); }
-
-/* On a universal drop the textarea is the request and files are the option beside it.
-   Same control, less weight. */
-.file-panel--secondary .drop-zone { min-height:64px; padding:14px; color:var(--muted); font-size:14px; }
-
-#files-limits { margin:8px 0 0; }
-#file-total { margin:10px 0 0; }
-
-/* Collapsed by default and below the action: true, and not what anyone came here to
-   read. */
-.about { margin-top:22px; font-size:13px; }
-.about summary { color:var(--muted); cursor:pointer; }
-.about summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-.about p { margin:8px 0 0; font-size:13px; }
-.file-list { list-style:none; padding:0; margin:14px 0; }
-.file-list li { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); }
-.file-list .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.file-list button { border:0; background:transparent; color:var(--accent); cursor:pointer; }
-
-/* The outbound direction: the gate, then the revealed fields. Same quiet document,
-   and deliberately the same accent — a page that looked different from the inbound
-   form would be a page a user has to learn twice. */
-
-/* What a Hermes Drop is, above the code box. Not a footnote: it is the only place
-   the user is told the reveal is one-shot, so it reads as prose rather than as fine
-   print. */
-/* The one supporting paragraph -- the requester's sentence, or the single built-in
-   line that stands in for it. It no longer needs a rule down its left side to be told
-   apart from the page's voice, because there is no longer a competing paragraph of
-   page voice beside it: it is the only prose above the input. Wraps freely and breaks
-   long unbroken strings, so a description of any shape or script the schema allows
-   cannot push the layout sideways on a phone. */
-.request-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+/* One column. `isolation` and `overflow: clip` are what keep the art behind the
+   heading and inside the page: it can bleed to the edge of the shell and no further,
+   so it can never widen the page. */
+.aperture-shell {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  min-height: 100svh;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 24px calc(40px + env(safe-area-inset-bottom));
 }
 
-.explain { margin: 14px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
-.explain li { margin: 7px 0; }
-.explain strong { color: var(--ink); }
+.aperture-shell > section,
+.loading-note { position: relative; z-index: 1; }
 
-/* The code box. Wide-spaced digits so three characters do not look like a typo, and
-   `text-align:center` because the field is exactly as long as its content. */
-#reveal-code {
-  display: block;
-  width: 100%;
-  max-width: 220px;
-  margin: 26px 0 18px;
-  padding: 12px 0;
-  color: var(--ink);
-  background: transparent;
-  border: 0 solid var(--line);
-  border-bottom-width: 1px;
-  border-radius: 0;
-  outline: none;
-  font-size: 32px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .32em;
-  text-align: center;
+.brand-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
 }
 
-#reveal-code:focus { border-color: var(--accent); }
-
-.field-list { list-style: none; padding: 0; margin: 26px 0 14px; }
-
-.field {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
+/* The mark is drawn, not fetched: a cup open at the top and a stem dropping into it. */
+.drop-id {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 22px/1.1 var(--display);
+  letter-spacing: -.04em;
+}
+.drop-id::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 20px;
+  height: 25px;
+  border: 2px solid var(--accent-ink);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  transform: rotate(15deg);
+}
+.drop-id::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: -4px;
+  width: 2px;
+  height: 15px;
+  background: var(--accent-ink);
 }
 
-.field-head { margin: 0 0 6px; }
+.tagline,
+.drop-bar,
+.field-label,
+.meta,
+.aperture-caption span,
+.about summary { font-family: var(--mono); }
 
-.field-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .09em;
+.tagline {
+  font-size: 10px;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--meta);
 }
 
-/* Monospaced because these are credentials: the difference between `l`, `1` and `I`
-   has to be visible even though the Copy button means nobody should be transcribing
-   one. `pre-wrap` so a note's lines are its lines, and `overflow-wrap` so a long key
-   wraps inside the page instead of widening it. */
-.field-value {
-  margin: 0;
+/* Narrow-window composition: the art leaves the flow entirely. Low opacity, a soft
+   blur and a fade to nothing, anchored behind the status row and the heading — a
+   texture under the title, not a picture to look at. */
+.aperture {
+  position: absolute;
+  z-index: 0;
+  top: 64px;
+  right: -96px;
+  width: 380px;
+  height: 380px;
+  opacity: .23;
+  filter: blur(1.6px);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(#000 10%, transparent 92%);
+  mask-image: linear-gradient(#000 10%, transparent 92%);
+}
+.aperture-art { display: block; width: 100%; height: 100%; }
+.aperture-caption { display: none; }
+
+.wash-in { stop-color: var(--wash-in); stop-opacity: var(--wash-in-opacity); }
+.wash-out { stop-color: var(--wash-in); stop-opacity: 0; }
+.ring-a { stop-color: var(--ring-a); }
+.ring-b { stop-color: var(--ring-b); }
+.ring-c { stop-color: var(--ring-c); }
+.passage { stroke: var(--passage); }
+.passage-end { fill: var(--passage); }
+.tick { stroke: var(--tick); }
+.tick-label { fill: var(--tick); font: 9px var(--mono); letter-spacing: .06em; }
+
+/* Shown only before a screen is chosen. The shell is already painted around it, so a
+   slow metadata answer reads as a page that is working, not one that is blank. */
+.loading-note { display: none; margin: 44px 0 0; font: 12px var(--mono); letter-spacing: .06em; color: var(--meta); }
+#app[data-state="loading"] .loading-note { display: block; }
+
+/* ── one screen ─────────────────────────────────────────────────────────────── */
+
+.aperture-shell > section { padding-top: 40px; }
+
+/* Status left, clock right, a rule under both. The clock has a home of its own
+   instead of being buried mid-sentence, and the status names the screen in the
+   page's own words. */
+.drop-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 11px;
+  letter-spacing: .06em;
   color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 15px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
+.drop-status { display: inline-flex; align-items: center; gap: 8px; color: var(--accent-ink); text-transform: uppercase; }
+.drop-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.drop-status--spent,
+.drop-status--idle { color: var(--meta); }
+.drop-expiry { white-space: nowrap; }
+.drop-clock { font-weight: 400; font-variant-numeric: tabular-nums; }
 
-/* The mask is not selectable: dragging across it and pasting would otherwise put
-   twelve dots where a password was meant to go. Copy is the way out. */
-.field-value.masked {
-  color: var(--muted);
-  letter-spacing: .18em;
-  user-select: none;
-}
-
-.field-actions { display: flex; gap: 8px; margin-top: 10px; }
-
-.ghost {
-  padding: 6px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.ghost:hover { border-color: var(--accent); }
-
-.eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .11em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
+.copy { margin: 0; }
 
 h1 {
-  font-size: clamp(27px, 6vw, 42px);
-  line-height: 1.08;
+  margin: 28px 0 14px;
+  /* 11vw is what a 390px screen gets; the low floor is for zoomed-in windows, where a
+     fixed 38px would split every long word. */
+  font: 500 clamp(28px, 11vw, 51px)/1.02 var(--display);
   letter-spacing: -.035em;
-  margin: .35rem 0 .75rem;
-}
-
-/* The task heading. Smaller than the outbound headings on purpose: it is one of three
-   things on the screen rather than the whole screen, and a long label -- or a long
-   word in a language that has them -- has to wrap into a shape a person still reads
-   as one heading. */
-#form h1 {
-  font-size: clamp(24px, 5.4vw, 34px);
-  margin: 0 0 10px;
+  /* A long label -- or a long word in a language that has them -- wraps into a shape
+     that still reads as one heading instead of pushing the page sideways. */
   overflow-wrap: anywhere;
 }
 
 p { margin: .35rem 0; color: var(--muted); }
 
-/* Scoped to #form: this is the inbound composer's box and the outbound screens must
-   not inherit it. A bordered box rather than the single far-below rule it replaces --
-   the old shape read as empty space with a line under it, and "where do I type" should
-   not be a question. Shorter, too, so the action stays above the fold on a phone. */
-#form textarea {
-  display: block;
-  width: 100%;
-  min-height: 150px;
-  margin: 22px 0 0;
-  padding: 12px 14px;
-  resize: none;
-  color: var(--ink);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  outline: none;
+/* The one supporting paragraph -- the requester's sentence, or the single built-in
+   line that stands in for it. It is the only prose above the input. Wraps freely and
+   breaks long unbroken strings, so a description of any shape or script the schema
+   allows cannot push the layout sideways on a narrow screen. */
+.request-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
-#form textarea:focus { border-color: var(--accent); }
+/* ── controls ───────────────────────────────────────────────────────────────── */
 
-/* One column: the status note, then a Send that spans the full width. No file
-   control and nothing else competing with the single action. */
+/* Every typing surface is opaque, so the art behind the heading can never sit under
+   a value someone is checking. 16px on the control itself, because anything smaller
+   makes iOS zoom the page on focus — which on a one-shot form reads as the page
+   breaking. */
+#secret,
+#reveal-code,
+#form .form-field input[type="text"],
+#form .form-field input[type="email"],
+#form .form-field input[type="password"],
+#form .form-field textarea {
+  display: block;
+  width: 100%;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--control-line);
+  border-radius: 12px;
+  outline: none;
+  font-size: 16px;
+  transition: border-color .12s, box-shadow .12s;
+}
+
+#secret:focus,
+#reveal-code:focus,
+#form .form-field input:focus,
+#form .form-field textarea:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-wash);
+}
+
+::placeholder { color: var(--meta); opacity: 1; }
+
+/* Mono where the value is a credential: `l`, `1` and `I` have to be told apart. */
+#secret,
+#form .form-field textarea,
+#form .secret-row input { font-family: var(--mono); }
+
+#secret {
+  min-height: 150px;
+  margin: 28px 0 0;
+  padding: 16px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.field-label {
+  display: block;
+  margin: 28px 0 10px;
+  font-size: 12px;
+  letter-spacing: .02em;
+  color: var(--ink);
+}
+
+/* The code box: one input for the whole code, wide-spaced so three characters do not
+   look like a typo, and tall enough to hit first time with a thumb. */
+#reveal-code {
+  height: 68px;
+  padding: 0 22px;
+  font: 30px var(--mono);
+  letter-spacing: .5em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tries { margin: 12px 0 0; }
+
+.meta { font-size: 12px; color: var(--meta); }
+
+/* ── files ──────────────────────────────────────────────────────────────────── */
+
+.file-panel { margin: 20px 0 0; }
+
+/* A <button>, so it is focusable and operable from the keyboard -- which the <label>
+   this replaced never was. The resets undo the UA button styling. */
+.drop-zone {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 112px;
+  padding: 20px;
+  border: 1px dashed var(--control-line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  /* Border and ring only. A background transition would also fade every surface
+     through the old colour whenever the device switches theme. */
+  transition: border-color .12s, box-shadow .12s;
+}
+.drop-zone:hover { border-color: var(--focus); }
+.drop-zone.drag { border-style: solid; border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-wash); }
+.drop-zone:disabled { cursor: not-allowed; opacity: .6; }
+
+/* On a universal drop the textarea is the request and files are the option beside it.
+   Same control, less weight. */
+.file-panel--secondary .drop-zone { min-height: 56px; padding: 14px; color: var(--muted); font-size: 15px; }
+
+#files-limits { margin: 8px 0 0; }
+#file-total { margin: 10px 0 0; }
+
+.file-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.file-list:empty { display: none; }
+.file-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.file-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.file-list button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-ink);
+  font: 12px var(--mono);
+  cursor: pointer;
+}
+
+/* ── consequence, action, disclosure ────────────────────────────────────────── */
+
+/* What this action costs, in two lines, beside the action. The arrow is drawn here so
+   it is never part of the sentence a screen reader reads. */
+.consequence {
+  position: relative;
+  margin: 28px 0 0;
+  padding-left: 32px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.consequence::before {
+  content: '\21B3';
+  position: absolute;
+  left: 0;
+  top: -3px;
+  font: 22px/1 var(--display);
+  color: var(--accent-ink);
+}
+.consequence strong { display: block; font-weight: 400; color: var(--ink); }
+
+/* One column: the status note, then an action that spans the full width. */
 .actions {
   display: grid;
   gap: 10px;
   margin-top: 22px;
 }
 
-.meta { font-size: 13px; color: var(--muted); }
-
 /* An empty status line must not reserve a row; a problem in it must not be quieter
-   than the thing it is about. Full-contrast ink and weight, no new colour -- the page
-   has one accent and this is not an alarm, it is an instruction. */
-#note:empty { display: none; }
-.note-problem { color: var(--ink); font-weight: 600; }
+   than the thing it is about. Full-contrast ink, no alarm colour -- it is an
+   instruction, not an alarm. */
+#note:empty,
+#revealed-note:empty { display: none; }
+.note-problem { color: var(--ink); }
 
-.privacy-note { display: flex; align-items: center; gap: 6px; }
-.privacy-note::before { content: '\25C7'; color: var(--accent); font-size: 11px; }
-
+/* The label is centred on the WHOLE button, and the arrow is pinned to the right edge
+   on its own: centring the two as one group would push the word off the button's
+   centre by half an arrow. The inline padding is symmetric for the same reason. The
+   arrow is generated content with empty alternative text, so the button's name stays
+   exactly its label -- "Send", "Sending…", "Reveal once" -- whatever the script
+   writes into it. */
 .primary {
+  position: relative;
+  display: block;
   width: 100%;
-  padding: 15px 20px;
+  min-height: 54px;
+  padding: 14px 56px;
   border: 0;
-  border-radius: 5px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(115deg, var(--accent), var(--accent2));
-  box-shadow: 0 7px 20px #5e63c126;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 17px/1.5 var(--display);
+  letter-spacing: -.01em;
+  text-align: center;
   cursor: pointer;
+  transition: background-color .12s;
+}
+.primary::after {
+  content: '\2197';
+  content: '\2197' / '';
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 18px/1 var(--text);
+}
+.primary:hover { background: var(--accent-hover); }
+.primary:disabled { cursor: progress; background: var(--accent); opacity: .62; }
+.primary:disabled::after { content: none; }
+
+/* Collapsed by default and below the action: true, and not what anyone came here to
+   read. */
+.about { margin-top: 24px; font-size: 13px; }
+.about summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 12px;
+  color: var(--meta);
+  cursor: pointer;
+  list-style: none;
+}
+.about summary::-webkit-details-marker { display: none; }
+/* The marker is redrawn because `inline-flex` drops the native one; it is generated
+   content with empty alternative text, so the summary's name stays its words. */
+.about summary::before {
+  content: '\25B8';
+  content: '\25B8' / '';
+  font-size: 11px;
+  transition: transform .12s;
+}
+.about[open] summary { color: var(--ink); }
+.about[open] summary::before { transform: rotate(90deg); }
+.about p { margin: 4px 0 10px; font-size: 14px; line-height: 1.55; }
+.about code { font-family: var(--mono); color: var(--ink); }
+
+/* One visible focus ring for everything focusable, drawn in the palette's own focus
+   colour rather than the browser's blue. */
+.primary:focus-visible,
+.ghost:focus-visible,
+.drop-zone:focus-visible,
+.file-list button:focus-visible,
+.about summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 
-.primary:disabled { opacity: .45; cursor: not-allowed; }
+/* ── the declarative form ───────────────────────────────────────────────────── */
 
-.status { max-width: 480px; text-align: center; }
-
-.status .icon {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-size: 24px;
-  color: var(--idle-ink);
-  background: var(--idle-wash);
-}
-
-.status .icon.ok { color: var(--ok); background: var(--ok-wash); }
-.status h1 { font-size: 30px; }
-
-@media (max-width: 760px) {
-  .quiet-document { align-items: start; padding-top: 34px; }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #f1f0f5;
-    --muted: #9a98a5;
-    --line: #393741;
-    --paper: #121116;
-    --accent: #9b83ff;
-    --accent2: #659bff;
-    --ok: #72d6a4;
-    --ok-wash: #18372a;
-    --idle-wash: #29282e;
-    --idle-ink: #9a98a5;
-    --wash: #211b36;
-  }
-
-  .primary { box-shadow: 0 8px 24px #6e5ac02b; }
-}
-
-/* The declarative form.
-   Scoped to #form so the outbound reveal, which shares this stylesheet, is untouched.
-   No new colour token is introduced: every rule below reuses --ink, --muted, --line and
-   --wash, which are already redefined in the dark block, so the form follows the theme
-   the page has always followed. */
+/* Scoped to #form so the outbound screens are untouched by it. Fields form one
+   document in canonical order, not a card per field. */
 #form .form-fields {
   list-style: none;
-  /* The same air the generic composer gets between the supporting sentence and the
-     control below it. Without it the description and the first field label sit almost
-     touching, which reads as one block of text rather than copy and then a question. */
-  margin: 18px 0 0;
+  margin: 28px 0 0;
   padding: 0;
   display: grid;
-  gap: 18px;
+  gap: 22px;
 }
-#form .form-field {
-  display: grid;
-  gap: 6px;
-}
+#form .form-field { display: grid; gap: 10px; }
 #form .form-field > label {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--ink);
   display: flex;
   align-items: baseline;
   gap: 8px;
-  /* A long label wraps rather than widening the column past the phone. */
+  font: 12px var(--mono);
+  letter-spacing: .02em;
+  color: var(--ink);
+  /* A long label wraps rather than widening the column. */
   overflow-wrap: anywhere;
 }
-#form .form-field .optional {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-}
+#form .form-field .optional { font-size: 11px; color: var(--meta); }
 #form .form-field input[type="text"],
 #form .form-field input[type="email"],
-#form .form-field input[type="password"],
+#form .form-field input[type="password"] { height: 54px; padding: 0 16px; }
 #form .form-field textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  color: var(--ink);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 11px 13px;
-  /* 16px on the control itself, because anything smaller makes iOS zoom the page on
-     focus — which on a one-shot form reads as the page breaking. */
-  font-size: 16px;
-}
-#form .form-field textarea {
-  /* The generic composer's `margin: 22px 0 0` would otherwise leak in and push this
-     control away from the label that names it — found by looking at a render, where
-     the Notes field sat visibly further from its label than every other field. */
+  min-height: 115px;
   margin: 0;
-  min-height: 96px;
+  padding: 14px 16px;
+  line-height: 1.6;
   resize: vertical;
 }
-#form .form-field input:focus-visible,
-#form .form-field textarea:focus-visible,
-#form .form-field .drop-zone:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-/* The reveal sits beside the field rather than inside it: a control overlaid on the
-   text would cover the end of a long value, which is exactly the part someone is
-   checking when they press it. */
-#form .secret-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-#form .secret-row input {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
+
+/* The reveal sits inside the field's right edge, and the field reserves that edge:
+   the padding means no character of a long value is ever drawn under the control,
+   which is exactly the part someone is checking when they press it. */
+#form .secret-row { position: relative; }
+#form .secret-row input { padding-right: 76px; }
 #form .secret-row .ghost {
-  flex: 0 0 auto;
-  align-self: stretch;
-  padding-inline: 12px;
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  bottom: 5px;
+  min-width: 60px;
+  border: 0;
+  border-radius: 8px;
 }
-#form .form-field .drop-zone {
-  min-height: 64px;
-  width: 100%;
+#form .form-field .drop-zone { min-height: 64px; }
+
+/* Show, Hide and Copy: quiet, but full-size targets. */
+.ghost {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--control-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-ink);
+  font: 12px var(--mono);
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: border-color .12s;
+}
+.ghost:hover { border-color: var(--focus); }
+
+/* ── revealed values ────────────────────────────────────────────────────────── */
+
+.field-list { list-style: none; padding: 0; margin: 28px 0 0; border-top: 1px solid var(--rule); }
+.field { padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.field-head { margin: 0 0 8px; }
+.field .field-label { display: inline; margin: 0; color: var(--meta); }
+
+/* `pre-wrap` so a note's lines are its lines, and `overflow-wrap` so a long key wraps
+   inside the page instead of widening it. */
+.field-value {
+  margin: 0;
+  color: var(--ink);
+  font: 15px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The mask is not selectable: dragging across it and pasting would otherwise put
+   twelve dots where a password was meant to go. Copy is the way out. */
+.field-value.masked { color: var(--meta); letter-spacing: .18em; user-select: none; }
+
+/* Copy and Show/Hide are separate controls on purpose: copying never requires
+   un-masking. */
+.field-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+#revealed-note { margin: 16px 0 0; }
+
+/* ── terminal screens ───────────────────────────────────────────────────────── */
+
+.status .icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 32px 0 0;
+  border-radius: 50%;
+  font: 24px/1 var(--text);
+  color: var(--meta);
+  background: var(--idle-wash);
+}
+.status .icon.ok { color: var(--accent-ink); background: var(--ok-wash); box-shadow: inset 0 0 0 1px var(--accent-ink); }
+.status h1 { margin-top: 20px; font-size: clamp(34px, 9vw, 44px); }
+
+/* ── narrow windows: identity and tagline share one line ─────────────────────── */
+
+@media (max-width: 959px) {
+  .brand-row { flex-wrap: nowrap; }
+  .tagline { font-size: 8px; letter-spacing: .03em; white-space: nowrap; }
+}
+
+/* ── smallest windows ───────────────────────────────────────────────────────── */
+
+@media (max-width: 360px) {
+  .tagline { display: none; }
+  /* At 200% zoom the column is about 160px: the symmetric padding that centres the
+     label would otherwise leave less room than one word of it. */
+  .primary { padding-inline: 40px; }
+  .primary::after { right: 16px; }
+  .aperture-shell { padding-inline: 18px; }
+  .drop-id { font-size: 20px; }
+  .drop-bar { font-size: 10px; }
+}
+
+/* ── wide windows: the art takes the left column ────────────────────────────── */
+
+@media (min-width: 960px) {
+  .aperture-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+    grid-template-rows: auto 1fr;
+    column-gap: clamp(48px, 8vw, 100px);
+    padding: 34px 48px 48px;
+  }
+  .brand-row { grid-column: 1 / -1; }
+  .drop-id { font-size: 24px; }
+
+  .aperture-shell > section,
+  .loading-note { grid-column: 2; grid-row: 2; align-self: center; padding: 56px 0; }
+
+  /* Pinned to the middle of the window rather than of the row, so a long screen --
+     many revealed values, a long form -- scrolls past the art instead of leaving it
+     stranded halfway down the page. */
+  .aperture {
+    position: sticky;
+    top: max(24px, calc(50svh - 240px));
+    grid-column: 1;
+    grid-row: 2;
+    align-self: start;
+    /* Only `right` is reset from the narrow layout; `top` above is the sticky inset. */
+    right: auto;
+    width: auto;
+    max-width: 560px;
+    height: 480px;
+    opacity: 1;
+    filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .aperture-art { position: absolute; inset: -15px -25px 50px; width: 100%; height: calc(100% - 50px); }
+  .aperture-caption {
+    display: block;
+    position: absolute;
+    left: 10px;
+    bottom: 0;
+    margin: 0;
+    padding-left: 15px;
+    border-left: 1px solid var(--rule);
+    font: 500 28px/1.1 var(--display);
+    letter-spacing: -.025em;
+    color: var(--muted);
+  }
+  .aperture-caption span {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--meta);
+  }
+  h1 { font-size: 51px; line-height: .98; }
+  .request-note { font-size: 15px; }
+}
+
+/* Nothing on the page moves to make a point; the only motion is a short colour
+   change on hover and focus, and with reduced motion that is instant too. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

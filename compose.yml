@@ -10,7 +10,7 @@ name: secure-secret-handoff
 # rather than resolving either to an empty string.
 #
 # Everything internal — service, container, router, middleware and environment
-# names — says `handoff`. Hermes Drop is the product name; renaming the internals
+# names — says `handoff`. Hermes Secret Drop is the product name; renaming the internals
 # would break every live deployment for no functional gain.
 
 services:

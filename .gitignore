@@ -16,7 +16,7 @@ __pycache__/
 # ── not published ──────────────────────────────────────────────────────────
 #
 # Kept in the working tree, deliberately out of the public repository. None of
-# it is needed to build, test, install or deploy Hermes Drop, and all of it
+# it is needed to build, test, install or deploy Hermes Secret Drop, and all of it
 # describes one operator's environment rather than the product.
 
 # Internal planning, tickets, research, per-slice implementation reports and

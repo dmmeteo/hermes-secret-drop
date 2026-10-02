@@ -72,7 +72,7 @@ def real_profile_signature() -> dict:
 
     The guard used to assert that ``plugins/hermes-drop`` was simply *absent*,
     which was right while the plugin was unreleased and is wrong now: anyone who
-    installs Hermes Drop and then runs its tests has it present, legitimately, and
+    installs Hermes Secret Drop and then runs its tests has it present, legitimately, and
     would see a failure describing a defect that is not there.
 
     What was always meant — the file's own docstring says so — is that the suite

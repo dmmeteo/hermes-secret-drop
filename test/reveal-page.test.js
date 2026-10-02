@@ -146,10 +146,10 @@ describe('the reveal page', () => {
     }
   });
 
-  it('tells the user what a Hermes Drop is, before asking for a code', async () => {
-    // The four things the MVP requires the page to be clear about. Asserted against
-    // the shipped markup rather than against a copy of it, so a rewrite that drops
-    // one of them fails here.
+  it('keeps what revealing costs on the gate, and how the drop is protected in its disclosure', async () => {
+    // What the MVP requires the gate to be clear about (docs/OUTBOUND_SECRET_DROP_MVP.md).
+    // Asserted against the shipped markup rather than against a copy of it, so a
+    // rewrite that drops one of them fails here.
     const html = await readFile(new URL('../src/public/index.html', import.meta.url), 'utf8');
     const gate = html.slice(html.indexOf('<section id="reveal"'), html.indexOf('<section id="revealed"'));
 
@@ -160,6 +160,33 @@ describe('the reveal page', () => {
     assert.match(gate, /id="reveal-ttl"/, 'with a live countdown to show when');
     assert.match(gate, /3-digit code/, 'what to type');
     assert.ok(/never send/i.test(gate) || /#/.test(gate), 'and why the key is safe in the link');
+
+    // The technical explanation may fold away; the consequences may not. One reveal,
+    // a spent link and the expiry stay on the screen itself, above the action.
+    const visible = gate.replace(/<details[\s\S]*?<\/details>/g, '');
+    assert.match(visible, /reveal it once/i, 'the one reveal is not folded away');
+    assert.match(visible, /cannot be opened again/i, 'nor what it costs');
+    assert.match(visible, /expires/i, 'nor the expiry');
+    assert.ok(visible.indexOf('reveal it once') < visible.indexOf('id="reveal-open"'), 'and it is read before the action');
+    assert.match(visible, /id="reveal-ttl"/, 'the countdown is on the screen, not in the disclosure');
+
+    // The mechanics live in the gate's own "About this drop", collapsed by default.
+    const about = gate.slice(gate.indexOf('<details class="about"'), gate.indexOf('</details>'));
+    assert.match(about, /<summary>About this drop<\/summary>/);
+    assert.match(about, /encrypted/i, 'the encryption is explained there');
+    assert.match(about, /#/, 'with where the key travels');
+    assert.match(about, /not a password/i, 'and what the code is, and is not, for');
+    assert.doesNotMatch(gate, /<details[^>]*\sopen\b/, 'and it starts closed');
+  });
+
+  it('makes no claim about the drop that the threat model does not support', async () => {
+    // Before a claim, anyone holding the link AND the code can open the drop, and the
+    // broker keeps an access log of method, path and status. The page used to say
+    // otherwise in both cases; it must not drift back.
+    const html = await readFile(new URL('../src/public/index.html', import.meta.url), 'utf8');
+    assert.doesNotMatch(html, /only this browser/i);
+    assert.doesNotMatch(html, /tracked or logged|nothing (?:here )?is logged/i);
+    assert.doesNotMatch(html, /end-to-end|zero[- ]knowledge|unhackable/i);
   });
 
   it('opens the gate for a live drop and counts its lifetime down', async () => {

@@ -1,5 +1,6 @@
-// Public browser-facing HTTP surface. Three things only: the page, its two
-// self-hosted assets, and two capability-authorized POST endpoints.
+// Public browser-facing HTTP surface. Three things only: the page, its self-hosted
+// assets (the bundle, the stylesheet and its fonts), and two capability-authorized
+// POST endpoints.
 //
 // Nothing here reads the query string, and nothing logs anything but the method,
 // the path and the status — the capability arrives in a header and the payload is
@@ -46,9 +47,16 @@ export { PAYLOAD_DECLARATIONS, PAYLOAD_DECLARATION_HEADER, SUBMIT_DECLARATIONS }
 
 const PUBLIC_DIR = fileURLToPath(new URL('./public/', import.meta.url));
 
+// The fonts are listed one by one rather than served from a directory: what this
+// origin answers is a closed set read into memory at start, so a stray file dropped
+// into `public/fonts/` is not thereby published. They live outside `assets/`, which
+// is the build's output directory and is ignored by git and by the image build.
 const ASSETS = new Map([
   ['/assets/app.js', { file: 'assets/app.js', type: 'text/javascript; charset=utf-8' }],
   ['/assets/app.css', { file: 'app.css', type: 'text/css; charset=utf-8' }],
+  ['/assets/fonts/FixelDisplay-Medium.woff2', { file: 'fonts/FixelDisplay-Medium.woff2', type: 'font/woff2' }],
+  ['/assets/fonts/FixelText-Regular.woff2', { file: 'fonts/FixelText-Regular.woff2', type: 'font/woff2' }],
+  ['/assets/fonts/GeistMono-Regular-latin.woff2', { file: 'fonts/GeistMono-Regular-latin.woff2', type: 'font/woff2' }],
 ]);
 
 const CSP = [
@@ -57,7 +65,9 @@ const CSP = [
   "style-src 'self'",
   "connect-src 'self'",
   "img-src 'none'",
-  "font-src 'none'",
+  // Self-hosted type, from this origin only. The one directive widened for the
+  // page's typography; `img-src` stays shut.
+  "font-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",

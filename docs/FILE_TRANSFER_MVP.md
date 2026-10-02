@@ -6,7 +6,7 @@ Status: **proposed implementation baseline**
 
 Allow the current conversation to request one short-lived, origin-bound drop that can contain **one or several small files**. File bytes and filenames must never appear in chat or in Hermes durable conversation state.
 
-This extends the existing Hermes Drop lifecycle; it does not create a generic file host or outbound file-sharing service.
+This extends the existing Hermes Secret Drop lifecycle; it does not create a generic file host or outbound file-sharing service.
 
 ## MVP limits
 

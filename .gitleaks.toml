@@ -1,4 +1,4 @@
-title = "Hermes Drop gitleaks configuration"
+title = "Hermes Secret Drop gitleaks configuration"
 
 # Published RFC 9180 interoperability vectors intentionally contain fixed
 # cryptographic test material. They are public test vectors, not credentials.

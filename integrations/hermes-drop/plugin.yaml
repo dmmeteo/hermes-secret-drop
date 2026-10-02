@@ -4,7 +4,7 @@ description: >-
   Origin-bound private values, both directions. Asks the user for a secret
   through a one-shot encrypted web form, and hands one back through a one-time
   code-gated reveal page — both posted into the conversation the request came
-  from, never a configured home channel. Needs a Hermes Drop broker reachable
+  from, never a configured home channel. Needs a Hermes Secret Drop broker reachable
   on a local control socket; see the repository README.
 author: dmmeteo
 kind: standalone

@@ -173,6 +173,51 @@ and reads none of them, and behaves exactly as it did before.
 
 ### Changed
 
+- **The product is now called Hermes Secret Drop.** The page title and identity row,
+  the README, SECURITY.md, the design docs, the `/drop` command descriptions, the
+  plugin description, the installer's messages and the package name
+  (`hermes-secret-drop`) say so. Nothing an installation depends on was renamed: the
+  plugin id and directory `hermes-drop`, the `hermes_drop` toolset, the `/drop`
+  command, `HERMES_DROP_*`, `plugins.entries.hermes-drop`, the
+  `state/hermes-drop` journal and spool, the installer's filename, the log prefix and
+  the `hermes-drop/outbound/v1` AAD label all keep their spelling. The new
+  `test/compat-identifiers.test.js` pins the crypto labels and the plugin id as
+  literals, because the round-trip tests import the same constant on both sides and
+  would not notice a rename. Existing installs need no action. The repository URLs in
+  `package.json` still name `dmmeteo/hermes-drop` until the GitHub repository is
+  renamed.
+
+- **The browser page is redesigned ("Aperture").** Every screen uses one anatomy:
+  - status and clock
+  - the heading and one supporting line
+  - the controls in canonical order
+  - what the action costs, stated immediately above the one action
+  - the "About this drop" disclosure
+
+  It covers inbound text, universal, files and declarative forms, the outbound gate,
+  revealed values, received, unavailable and a visible loading state. The page is
+  designed for narrow screens first: a decorative contour sits blurred and clipped
+  behind the heading, and becomes the left column on wide windows. Light and dark
+  themes are mapped independently and follow the device. Type is self-hosted Fixel
+  Display, Fixel Text and Geist Mono, all SIL OFL 1.1, with the licences in
+  `src/public/fonts/`. The primary button's label is centred on the whole button, with
+  the arrow drawn separately so it never enters the button's accessible name.
+
+  Behaviour, element ids, field order, file budgets, the one-time rules and the
+  generic unavailable screen are unchanged.
+
+- **The page's CSP allows same-origin fonts: `font-src 'self'`, previously `'none'`.**
+  No other directive changed. `img-src` is still `'none'`, which is why the one piece
+  of art is an inert inline SVG. The new font routes are an explicit list, and a test
+  pins the whole CSP string.
+
+- **The outbound gate's copy no longer overclaims.** "Only this browser can open" is
+  gone: before a claim, anyone holding the link and the code can open the drop. So is
+  "nothing here is tracked or logged": the broker keeps an access log of method, path
+  and status. The encryption explanation moved into the gate's own "About this drop".
+  The one-reveal consequence, the spent-link warning and the expiry stay on screen,
+  above the action. A test keeps both claims from returning.
+
 - **Drop notices render as a platform-native card.** Every notice on a verified
   platform — the three inbound states and the outbound drop — is now a blockquote
   card, drawn by each platform's own native quote rendering: Telegram converts the

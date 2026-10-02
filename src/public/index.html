@@ -5,15 +5,61 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex,nofollow,noarchive">
-<title>Hermes Drop</title>
+<title>Hermes Secret Drop</title>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-<main id="app" class="quiet-document" data-state="loading">
+<main id="app" class="aperture-shell" data-state="loading">
+
+<!-- The shell: identity and the one piece of art, shared by every screen and owned by
+     none of them. Both sit outside every section, so nothing a requester writes and
+     nothing a screen switch does can restate, move or remove them. -->
+<div class="brand-row">
+<span class="drop-id">Hermes Secret Drop</span>
+<span class="tagline">A private passage</span>
+</div>
+
+<!-- Decoration only: interrupted contour rings and one path through them. Inline so
+     that it needs no fetch -- the page's CSP keeps `img-src 'none'` -- and hidden from
+     assistive technology because it says nothing the screens do not. On a wide window
+     it is the left column; on a narrow one the stylesheet blurs it, fades it and clips
+     it behind the heading, and every control above it stays on an opaque surface. -->
+<div class="aperture" aria-hidden="true">
+<svg class="aperture-art" viewBox="0 0 500 500" focusable="false" aria-hidden="true">
+<defs>
+<radialGradient id="ap-wash"><stop class="wash-in" offset="0"/><stop class="wash-out" offset="1"/></radialGradient>
+<linearGradient id="ap-stroke" x1="0" x2="1" y1="1" y2="0"><stop class="ring-a" offset="0"/><stop class="ring-b" offset=".65"/><stop class="ring-c" offset="1"/></linearGradient>
+</defs>
+<ellipse cx="249" cy="230" rx="225" ry="215" fill="url(#ap-wash)"/>
+<g class="rings" fill="none" stroke="url(#ap-stroke)" stroke-width=".8" transform="translate(245 235) rotate(-31)">
+<ellipse rx="195" ry="150" stroke-dasharray="845 250" transform="rotate(5)"/>
+<ellipse rx="179" ry="137" stroke-dasharray="785 230" transform="rotate(9)"/>
+<ellipse rx="162" ry="125" stroke-dasharray="720 210" transform="rotate(13)"/>
+<ellipse rx="145" ry="112" stroke-dasharray="650 190" transform="rotate(17)"/>
+<ellipse rx="128" ry="99" stroke-dasharray="575 170" transform="rotate(21)"/>
+<ellipse rx="111" ry="86" stroke-dasharray="490 150" transform="rotate(25)"/>
+<ellipse rx="94" ry="73" stroke-dasharray="420 130" transform="rotate(29)"/>
+<ellipse rx="77" ry="60" stroke-dasharray="335 110" transform="rotate(33)"/>
+<ellipse rx="60" ry="47" stroke-dasharray="255 90" transform="rotate(37)"/>
+</g>
+<path class="passage" d="M256 156 L222 237 L263 237 L232 312" fill="none" stroke-width="5" stroke-linecap="round"/>
+<circle class="passage-end" cx="256" cy="156" r="5"/>
+<circle class="passage-end" cx="232" cy="312" r="5"/>
+<path class="tick" d="M54 352h63M377 122h65" stroke-width=".6"/>
+<text class="tick-label" x="54" y="372">ONE WAY</text>
+<text class="tick-label" x="377" y="111">ONE TIME</text>
+</svg>
+<p class="aperture-caption"><span>Not another message.</span> A way through.</p>
+</div>
+
+<!-- What the page says before it knows which screen it is. The stylesheet shows it
+     only while #app is in its initial `loading` state, so it is gone the moment any
+     screen is chosen, and nothing in the script has to remember to remove it. -->
+<p class="loading-note">Checking link&hellip;</p>
 
 <section id="form" hidden>
 <!-- Order on this screen is the whole design: WHAT is being asked for and WHY, then
-     the input, then one action. Everything that is not one of those three is either
+     the input, then what sending costs, then one action. Everything else is either
      gone or demoted.
 
      TWO elements are rewritable, and they are the only two. `form-title` is the task
@@ -23,20 +69,20 @@
      otherwise one built-in line, never both. Both are written with textContent by
      src/client/app.js and neither is ever built from a string.
 
-     What a descriptor CANNOT reach is now structural rather than a span boundary: the
-     identity row, the countdown and the "About this drop" disclosure are separate
-     static elements outside both rewritable ones, so no description can restate, move
-     or suppress what the page promises about expiry, one-shot use and the chat. `ttl`
-     is an element the countdown holds a reference to -- rewriting the row around it
-     would destroy it and stop the clock.
+     What a descriptor CANNOT reach is structural rather than a span boundary: the
+     identity row, the status row with its countdown, the consequence line and the
+     "About this drop" disclosure are separate static elements outside both rewritable
+     ones, so no description can restate, move or suppress what the page promises about
+     expiry, one-shot use and the chat. `ttl` is an element the countdown holds a
+     reference to -- rewriting the row around it would destroy it and stop the clock.
 
      The language rule: every string in this document is English, and so is a
      requester's `label`. `request-description` is the one place another language may
      appear, because it is the only place a requester describes their own request.
      Nothing detects or enforces that -- a detector would refuse copy it misread. -->
 <div class="drop-bar">
-<span class="drop-id">Hermes Drop</span>
-<strong id="ttl" class="drop-clock" role="timer" aria-live="off" aria-label="Time remaining">&ndash;:&ndash;&ndash;</strong>
+<span class="drop-status">Private request</span>
+<span class="drop-expiry">Expires in <strong id="ttl" class="drop-clock" role="timer" aria-live="off" aria-label="Time remaining">&ndash;:&ndash;&ndash;</strong></span>
 </div>
 <div class="copy">
 <h1 id="form-title">Send privately</h1>
@@ -62,6 +108,9 @@
      zero is not information, it is a row to read past. -->
 <p id="file-total" class="meta" hidden></p>
 </section>
+<!-- What sending costs, said once, immediately above the action that spends it. True
+     for every payload kind, so it is static and never chosen by the script. -->
+<p class="consequence"><strong>Send once. No edits afterwards.</strong> What you enter here is not posted to the chat.</p>
 <div class="actions">
 <!-- Ships empty. This line is for problems the sender can act on -- a short file
      count, an oversized value -- and never for reassurance. -->
@@ -80,47 +129,63 @@
 <!-- The outbound direction (docs/OUTBOUND_SECRET_DROP_MVP.md): Hermes has something
      for the user. Both sections are static markup in the shipped page — the payload
      is written into #revealed-fields as text nodes by src/client/reveal-view.js and
-     never as markup, so nothing below is ever built from a string. -->
+     never as markup, so nothing below is ever built from a string.
+
+     The gate keeps the inbound anatomy: status and clock, heading, one instruction,
+     the code box, what revealing costs, one action. How the drop is protected folds
+     into "About this drop"; what the user loses by revealing does not. -->
 <section id="reveal" hidden>
+<div class="drop-bar">
+<span class="drop-status">Ready to open</span>
+<span class="drop-expiry">Expires in <strong id="reveal-ttl" class="drop-clock" role="timer" aria-live="off" aria-label="Time remaining">&ndash;:&ndash;&ndash;</strong></span>
+</div>
 <div class="copy">
-<p class="eyebrow">One-time Hermes Drop</p>
-<h1>Hermes has something private for you</h1>
-<p>It was not posted in the chat. This page holds an <strong>encrypted</strong> value that only this browser can open: the server stores the ciphertext, and the key to it is in the link you followed — the part after the <code>#</code>, which browsers never send to a server.</p>
-<ul class="explain">
-<li>Type the <strong>3-digit code</strong> from the message, then choose Reveal. The code stops link previews, scanners and antivirus from opening the drop for you.</li>
-<li><strong>You can reveal it once.</strong> After that it is destroyed on the server and this link cannot be opened again — not by you, not by anyone else who has it. So do not reload this page while you are reading it.</li>
-<li>It expires on its own in <strong id="reveal-ttl" role="timer">–:––</strong>, whether or not anyone opens it.</li>
-<li>Nothing on this page comes from another site, and nothing here is tracked or logged.</li>
-</ul>
+<h1>Your private drop is ready</h1>
+<p class="request-note">Enter the 3-digit code from the chat message to open it.</p>
 </div>
 <label class="field-label" for="reveal-code">3-digit code</label>
-<input id="reveal-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="reveal-note">
+<input id="reveal-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="&middot;&middot;&middot;" aria-describedby="reveal-note">
+<p class="meta tries" id="reveal-note" role="status" aria-live="polite">3 tries · one reveal</p>
+<p class="consequence"><strong>You can reveal it once.</strong> After that this link cannot be opened again — not by you, not by anyone else who has it. Do not reload while you read.</p>
 <div class="actions">
-<span class="meta privacy-note" id="reveal-note">3 tries · one reveal</span>
 <button class="primary" id="reveal-open" type="button">Reveal once</button>
 </div>
+<details class="about">
+<summary>About this drop</summary>
+<p>The value is encrypted. The server stores only ciphertext; the key is in the part of the link after the <code>#</code>, which browsers do not send to servers.</p>
+<p>The code stops link previews, scanners and antivirus from opening the drop for you — it is not a password. The drop expires on its own whether or not anyone opens it, and this page loads nothing from other sites and has no analytics.</p>
+</details>
 </section>
 
 <section id="revealed" hidden>
+<!-- No clock here: the drop is spent, and a countdown would imply there is still
+     something to lose by waiting. The warning that the link is spent stays on the
+     screen for as long as the values do. -->
+<div class="drop-bar">
+<span class="drop-status drop-status--spent">Opened · link spent</span>
+</div>
 <div class="copy">
-<p class="eyebrow">Revealed — this was the one time</p>
 <h1 id="revealed-title">Your private values</h1>
-<p>Copy what you need now. The server has already destroyed its copy, so reloading this page will not bring it back and the link is spent. Sensitive values stay hidden until you ask — Copy works either way.</p>
+<p class="request-note">Copy what you need now. This link is spent — reloading will not bring the values back. Sensitive values stay hidden until you choose Show; Copy works either way.</p>
 </div>
 <ul id="revealed-fields" class="field-list"></ul>
 <p class="meta" id="revealed-note" role="status" aria-live="polite"></p>
 </section>
 
 <section id="success" class="status" hidden>
+<div class="drop-bar">
+<span class="drop-status">Received</span>
+</div>
 <p class="icon ok" aria-hidden="true">&check;</p>
-<p class="eyebrow">Received</p>
 <h1>Hermes has it.</h1>
 <p>You can close this page. The link has already been used and cannot be used again.</p>
 </section>
 
 <section id="unavailable" class="status" hidden>
+<div class="drop-bar">
+<span class="drop-status drop-status--idle">Nothing here</span>
+</div>
 <p class="icon" aria-hidden="true">&times;</p>
-<p class="eyebrow">Nothing here</p>
 <h1>This link is unavailable</h1>
 <p>It may have expired or already been used. Ask Hermes for a new link.</p>
 </section>

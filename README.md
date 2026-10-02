@@ -1,8 +1,8 @@
-# Hermes Drop
+# Hermes Secret Drop
 
 Ask for a secret without putting it in the chat.
 
-Hermes Drop gives a [Hermes](https://github.com/NousResearch/hermes-agent) agent a
+Hermes Secret Drop gives a [Hermes](https://github.com/NousResearch/hermes-agent) agent a
 way to request private text or up to five files from the person it is talking to:
 it posts a short-lived link into **the conversation it is already in**, the user
 chooses text or files in one web form, the browser encrypts the payload, and the
@@ -41,7 +41,7 @@ and Hermes can hand the user one the same way.
 
 ## Stock Hermes integration
 
-Hermes Drop runs on released, unmodified Hermes. `/drop [prompt]` is a stock skill
+Hermes Secret Drop runs on released, unmodified Hermes. `/drop [prompt]` is a stock skill
 command, so it enters the normal authenticated agent path before a Drop tool runs.
 The plugin registers only three origin-bound tools and an observation hook; it
 registers no slash command and requires no Hermes core patch.
@@ -226,7 +226,7 @@ string to the message list and flushes it straight into `state.db`, the
 request. There is one string at that moment and it is both the durable row and
 the wire, so no single seam can keep the plaintext out of one and in the other.
 
-Hermes Drop splits them:
+Hermes Secret Drop splits them:
 
 - the plugin substitutes an opaque ASCII placeholder —
   `[hermes-drop:secret:<32 hex>]` — into the tool result **before** it becomes a
@@ -659,6 +659,16 @@ There is no chat-delivery fallback.
 | [`@hpke/core`](https://github.com/dajiaji/hpke-js) | 1.9.0 (exact) | MIT | RFC 9180 HPKE over WebCrypto only. Pulls `@hpke/common` 1.10.1, pinned via `overrides`. |
 | [`esbuild`](https://github.com/evanw/esbuild) | 0.28.1 (exact, dev only) | MIT | Bundles the page into one self-hosted file, so the CSP needs no `unsafe-inline`. |
 
+### Bundled fonts
+
+| Font | File | License | Why |
+|---|---|---|---|
+| [Fixel](https://github.com/MacPaw/Fixel) Display 500, Text 400 | `src/public/fonts/Fixel*.woff2` | SIL OFL 1.1 (`src/public/fonts/OFL-Fixel.txt`) | The page's display and body type. Subset with complete Ukrainian. |
+| [Geist Mono](https://github.com/vercel/geist-font) 400 | `src/public/fonts/GeistMono-Regular-latin.woff2` | SIL OFL 1.1 (`src/public/fonts/OFL-Geist.txt`) | Status rows, labels, the code box and values. Latin only; see `src/public/fonts/README.md`. |
+
+The broker serves them from its own origin. The CSP allows `font-src 'self'` and
+nothing wider, so the page makes no third-party font request.
+
 No GPL/AGPL dependency. No database, Redis, analytics, CDN, third-party script or
 persistent payload store. The plugin needs only PyYAML, which Hermes already has.
 Tests use Node's built-in runner and pytest.
@@ -687,6 +697,7 @@ src/client/                     browser: metadata fetch, seal, submit, countdown
 src/client/form-view.js         draws a form contract; DOM only, no policy
 scripts/lib/cdp.mjs             headless-browser machinery for the preview runs
 src/public/                     index.html, app.css (assets/app.js is generated)
+src/public/fonts/               self-hosted Fixel and Geist Mono, with their OFL licences
 test/                           broker seams, HPKE vectors, page wiring, wake contract
 integrations/hermes-drop/       the Hermes plugin
   drop/form_contract.py         the form schema's Python twin, held to one case table
@@ -697,8 +708,18 @@ integrations/claude-code/       standalone Claude Code command prompt
 ```
 
 Internal identifiers say `handoff` throughout — the CLI, ids, environment
-variables, container and service names. Hermes Drop is the product name; the
-internal term was not worth a rename that would break every live deployment.
+variables, container and service names. **Hermes Secret Drop** is the product name;
+the internal term was not worth a rename that would break every live deployment.
+
+The product was called Hermes Drop before, and every identifier an installation
+already depends on keeps that spelling: the plugin id and directory `hermes-drop`,
+the `hermes_drop` toolset, the `/drop` command, the `HERMES_DROP_*` environment
+variables, `plugins.entries.hermes-drop` in `config.yaml`, the
+`$HERMES_HOME/state/hermes-drop` journal and spool, the installer
+`bin/install-hermes-drop.sh`, the `hermes-drop:` log prefix, and the
+`hermes-drop/outbound/v1` label bound into every outbound ciphertext. Renaming any of
+them would strand existing installs or make old and new versions unable to open each
+other's drops; `test/compat-identifiers.test.js` pins the ones no other test would.
 
 ## Contributing and security
 

@@ -74,6 +74,130 @@ const setFilesExpression = (files) => `
   })()
 `;
 
+/**
+ * The page's layout as a person on a 390px screen meets it: does anything push the
+ * page sideways, and is `selector` -- the one action -- inside the first screenful
+ * without scrolling. Measured under the phone metrics, which `shoot` leaves applied.
+ */
+async function phoneLayout(cdp, sessionId, selector) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', VIEWPORTS.phone, sessionId);
+  const layout = await evaluate(cdp, sessionId, `
+    (() => {
+      const action = document.querySelector(${JSON.stringify(selector)});
+      const box = action ? action.getBoundingClientRect() : null;
+      return {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        actionBottom: box ? Math.round(box.bottom + window.scrollY) : null,
+      };
+    })()
+  `);
+  layout.clipped = await evaluate(cdp, sessionId, CLIPPED_EXPRESSION);
+  await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+  return layout;
+}
+
+/**
+ * Which of the three self-hosted faces actually loaded. A declared face that never
+ * loads leaves the page on its fallback silently, and a CSP that blocks fonts fails
+ * exactly that way -- so the answer is read from the browser rather than assumed.
+ */
+const FONT_FAMILIES = ['Fixel Display', 'Fixel Text', 'Geist Mono'];
+async function loadedFonts(cdp, sessionId) {
+  return evaluate(cdp, sessionId, `
+    (async () => {
+      await document.fonts.ready;
+      return [...document.fonts].filter((face) => face.status === 'loaded').map((face) => face.family.replace(/"/g, ''));
+    })()
+  `);
+}
+
+/**
+ * 200% browser zoom on the 390px screen. Page zoom halves the CSS viewport, so this
+ * is the same layout a person gets by zooming in: 195 CSS px wide at four device
+ * pixels per CSS pixel. Kept out of the shared VIEWPORTS so the form-engine run's
+ * counts do not move.
+ */
+/**
+ * Elements of the visible screen whose box crosses its column or the window's edge. The shell clips
+ * horizontal overflow, so `scrollWidth` alone would report 0 for a control that is
+ * being cut off -- this measures the boxes themselves. The art is excluded: it is
+ * meant to bleed and be clipped.
+ */
+const CLIPPED_EXPRESSION = `
+  (() => {
+    const screen = document.querySelector('#app > section:not([hidden])');
+    if (!screen) return [];
+    // The screen's own column, not the window: a control wider than its column is a
+    // layout fault even while the window still has room for it.
+    const column = screen.getBoundingClientRect();
+    const right = Math.min(column.right, document.documentElement.clientWidth);
+    return [...screen.querySelectorAll('*')]
+      // .sr-only is a deliberate 1px box at -1px margin, never painted.
+      .filter((node) => node.offsetParent !== null && !node.classList.contains('sr-only'))
+      .map((node) => ({ node, box: node.getBoundingClientRect() }))
+      .filter(({ box }) => box.width > 0 && (box.right > right + 0.5 || box.left < column.left - 0.5))
+      .map(({ node, box }) => (node.id || node.className || node.tagName) + '@' + Math.round(box.right));
+  })()
+`;
+
+const ZOOMED_PHONE = { width: 195, height: 422, deviceScaleFactor: 4, mobile: true };
+async function zoomed(cdp, sessionId, file) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', ZOOMED_PHONE, sessionId);
+  const overflow = await evaluate(cdp, sessionId,
+    'document.documentElement.scrollWidth - document.documentElement.clientWidth');
+  const clipped = await evaluate(cdp, sessionId, CLIPPED_EXPRESSION);
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }, sessionId);
+  await writeFile(file, Buffer.from(data, 'base64'));
+  written.push(file);
+  await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+  return { overflow, clipped };
+}
+
+/**
+ * The wide layout's art is sticky: on a screen taller than the window it must stay in
+ * view, centred in the window, while the column beside it scrolls. A full-page capture
+ * cannot show that -- it lays the page out at its whole height -- so this scrolls a
+ * real 1280x800 window and measures the art's box, then captures exactly what is on
+ * screen at that scroll position.
+ */
+async function stickyArt(cdp, sessionId, file) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', VIEWPORTS.desktop, sessionId);
+  const measure = () => evaluate(cdp, sessionId, `
+    (async () => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const art = document.querySelector('.aperture').getBoundingClientRect();
+      return {
+        scrollY: Math.round(window.scrollY),
+        scrollable: document.documentElement.scrollHeight - window.innerHeight,
+        artTop: Math.round(art.top),
+        artBottom: Math.round(art.bottom),
+        expectedTop: Math.round(Math.max(24, window.innerHeight / 2 - 240)),
+        windowHeight: window.innerHeight,
+      };
+    })()
+  `);
+  const scrolled = await measure();
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId);
+  await writeFile(file, Buffer.from(data, 'base64'));
+  written.push(file);
+  await evaluate(cdp, sessionId, 'window.scrollTo(0, 0)');
+  await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+  return scrolled;
+}
+
+/** Presses Tab `count` times through the real input pipeline, so `:focus-visible` is what a keyboard user sees. */
+async function pressTab(cdp, sessionId, count) {
+  for (let i = 0; i < count; i += 1) {
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
+    }
+  }
+  return evaluate(cdp, sessionId, "document.activeElement && (document.activeElement.id || document.activeElement.tagName)");
+}
+
 // ── the run ───────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -225,6 +349,12 @@ async function main() {
       cdp.send('Page.handleJavaScriptDialog', { accept: true }, from).catch(() => {});
     });
 
+    // The shapes whose one action must be reachable without scrolling on a 390x844
+    // screen. The long-copy and hostile shapes are excluded on purpose: they exist to
+    // push the layout, and a long request is allowed to need a scroll.
+    const FIRST_SCREEN = new Set(['universal-legacy', 'text-described', 'files-exactly-two', 'text-described-en', 'files-exactly-two-en']);
+    let fontsChecked = false;
+
     for (const shape of shapes) {
       const created = await control(shape.request);
       if (!created.ok) throw new Error(`create failed for ${shape.name}: ${JSON.stringify(created)}`);
@@ -272,6 +402,29 @@ async function main() {
         }
       }
       await setTheme(cdp, sessionId, 'dark');
+      if (FIRST_SCREEN.has(shape.name)) {
+        const layout = await phoneLayout(cdp, sessionId, '#send');
+        record(
+          `Send is inside the first 390x844 screen: ${shape.name}`,
+          layout.width === 390 && layout.actionBottom !== null && layout.actionBottom <= layout.height,
+          `innerWidth=${layout.width} send-bottom=${layout.actionBottom}px of ${layout.height}px`,
+        );
+        record(`nothing is clipped at 390px: ${shape.name}`, layout.clipped.length === 0, JSON.stringify(layout.clipped));
+      }
+      if (shape.name === 'universal-legacy' || shape.name === 'long-ukrainian') {
+        const zoom = await zoomed(cdp, sessionId, join(outDir, `${shape.name}-zoom200-dark.png`));
+        record(`nothing overflows or is clipped at 200% zoom: ${shape.name}`, zoom.overflow <= 0 && zoom.clipped.length === 0,
+          `overflow=${zoom.overflow}px clipped=${JSON.stringify(zoom.clipped)}`);
+      }
+      if (!fontsChecked) {
+        fontsChecked = true;
+        const loaded = await loadedFonts(cdp, sessionId);
+        record(
+          'the three self-hosted faces load under the shipped CSP',
+          FONT_FAMILIES.every((family) => loaded.includes(family)),
+          `loaded=${JSON.stringify(loaded)}`,
+        );
+      }
       // Re-read overflow at phone width, which is where it actually matters.
       const phoneOverflow = await evaluate(
         cdp,
@@ -314,6 +467,84 @@ async function main() {
     }
 
     record('no javascript dialog was opened by any description', dialogs === 0, `dialogs=${dialogs}`);
+
+    // ── the loading state, held open ─────────────────────────────────────────
+    //
+    // The page shows the shell and one line while its metadata request is in flight.
+    // Too brief to photograph on loopback, so the request is paused in the browser
+    // until the screenshot is taken, then released.
+    {
+      const created = await control({ op: 'create', payload_kind: 'universal', ttl_seconds: 900 });
+      await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/metadata', requestStage: 'Request' }] }, sessionId);
+      const paused = cdp.waitFor('Fetch.requestPaused', sessionId);
+      await navigate(cdp, sessionId, `${broker.baseUrl}/#${capabilityOf(created.url)}`);
+      const { requestId } = await paused;
+      const loading = await evaluate(cdp, sessionId, `({
+        state: document.getElementById('app').dataset.state,
+        note: getComputedStyle(document.querySelector('.loading-note')).display,
+      })`);
+      record('the loading state paints the shell and a line', loading.state === 'loading' && loading.note === 'block',
+        `state=${loading.state} note-display=${loading.note}`);
+      for (const theme of THEMES) {
+        await setTheme(cdp, sessionId, theme);
+        await shoot(cdp, sessionId, 'phone', join(outDir, `loading-phone-${theme}.png`));
+      }
+      await setTheme(cdp, sessionId, 'dark');
+      await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+      await cdp.send('Fetch.continueRequest', { requestId }, sessionId);
+      await cdp.send('Fetch.disable', {}, sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const after = await evaluate(cdp, sessionId, `({
+        state: document.getElementById('app').dataset.state,
+        note: getComputedStyle(document.querySelector('.loading-note')).display,
+      })`);
+      record('the loading line is gone once a screen is chosen', after.state === 'form' && after.note === 'none',
+        `state=${after.state} note-display=${after.note}`);
+
+      // Keyboard focus, through real Tab presses: textarea (focused on load) ->
+      // file chooser -> Send. Each must show the palette's ring, not nothing.
+      await cdp.send('Emulation.setDeviceMetricsOverride', VIEWPORTS.phone, sessionId);
+      const onSend = await pressTab(cdp, sessionId, 2);
+      const ring = await evaluate(cdp, sessionId, `(() => {
+        const style = getComputedStyle(document.activeElement);
+        return { outline: style.outlineStyle, width: style.outlineWidth };
+      })()`);
+      record('Tab reaches Send and it shows a visible focus ring', onSend === 'send' && ring.outline !== 'none',
+        `focused=${onSend} outline=${ring.outline} ${ring.width}`);
+      for (const theme of THEMES) {
+        await setTheme(cdp, sessionId, theme);
+        await shoot(cdp, sessionId, 'phone', join(outDir, `focus-send-phone-${theme}.png`));
+      }
+      await setTheme(cdp, sessionId, 'dark');
+      await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+
+      // Reduced motion: the only motion is a short colour transition, and it must go.
+      await cdp.send('Emulation.setEmulatedMedia', { features: [
+        { name: 'prefers-color-scheme', value: 'dark' },
+        { name: 'prefers-reduced-motion', value: 'reduce' },
+      ] }, sessionId);
+      const durations = await evaluate(cdp, sessionId, `
+        ['#send', '#secret', '#drop-zone'].map((selector) => getComputedStyle(document.querySelector(selector)).transitionDuration)
+      `);
+      record('reduced motion removes every transition', durations.every((value) => /^0s(, 0s)*$/.test(value)),
+        `durations=${JSON.stringify(durations)}`);
+      await setTheme(cdp, sessionId, 'dark');
+
+      // The arrow is drawn, never named: the button's accessible name stays its label.
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree', {}, sessionId);
+      const sendNode = nodes.find((node) => node.role?.value === 'button' && /^Send/.test(node.name?.value ?? ''));
+      record('the arrow is not part of the Send button\'s accessible name', sendNode?.name?.value === 'Send',
+        `name=${JSON.stringify(sendNode?.name?.value)}`);
+      const centre = await evaluate(cdp, sessionId, `(() => {
+        const button = document.getElementById('send');
+        const range = document.createRange();
+        range.selectNodeContents(button);
+        const text = range.getBoundingClientRect();
+        const box = button.getBoundingClientRect();
+        return Math.round(Math.abs((text.left + text.width / 2) - (box.left + box.width / 2)));
+      })()`);
+      record('the Send label is centred on the whole button', centre <= 1, `offset=${centre}px`);
+    }
 
     // ── canary 1: text, through the page's own crypto ────────────────────────
     const CANARY_TEXT = `canary-text-${'x'.repeat(24)}-${Date.now()}`;
@@ -423,20 +654,33 @@ async function main() {
     // ── the terminal states, for the record ──────────────────────────────────
     {
       // The receipt, captured from the page that just reached it.
-      await shoot(cdp, sessionId, 'phone', join(outDir, 'received-phone-dark.png'));
+      for (const theme of THEMES) {
+        await setTheme(cdp, sessionId, theme);
+        for (const viewport of Object.keys(VIEWPORTS)) {
+          await shoot(cdp, sessionId, viewport, join(outDir, `received-${viewport}-${theme}.png`));
+        }
+      }
+      await setTheme(cdp, sessionId, 'dark');
       await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
     }
 
-    // ── outbound: shared stylesheet, deliberately NOT redesigned ─────────────
+    // ── outbound: the gate, a wrong code, and the revealed values ────────────
     //
-    // The inbound rules above are scoped to #form and to classes only the composer
-    // uses, but they live in the stylesheet this screen also loads. That intent is
-    // worth a picture rather than an assertion that it was intended.
+    // The revealed screen is reachable only by spending a drop, so it is driven the
+    // way a person reaches it: one wrong code, then the right one. Sample values are
+    // obviously fake; nothing here resembles a working credential.
     {
+      const LONG_NOTE = 'Rotate after the staging smoke test passes.\nThe old value stays valid for one hour after rotation.\n'
+        + 'reference: example-rotation-ticket-0000-not-real-'.repeat(2);
       const payload = JSON.stringify({
         v: 1,
         title: 'Staging credentials',
-        fields: [{ label: 'API token', type: 'secret', value: 'not-a-real-token' }],
+        fields: [
+          { label: 'Username', type: 'text', value: 'staging-deployer' },
+          { label: 'API token', type: 'secret', value: 'not-a-real-token-0123456789abcdefghijklmnopqrstuvwxyz' },
+          { label: 'Console', type: 'url', value: 'https://staging.example.test/console' },
+          { label: 'Notes', type: 'note', value: LONG_NOTE },
+        ],
       });
       const created = await control({
         op: 'create_outbound_drop',
@@ -447,15 +691,99 @@ async function main() {
       if (created?.ok) {
         await navigate(cdp, sessionId, `${broker.baseUrl}/#${created.url.split('#')[1]}`);
         const state = await evaluate(cdp, sessionId, "document.getElementById('app').dataset.state");
-        record('the outbound reveal gate still renders', state === 'reveal', `state=${state}`);
+        record('the outbound reveal gate renders', state === 'reveal', `state=${state}`);
         for (const theme of THEMES) {
           await setTheme(cdp, sessionId, theme);
-          await shoot(cdp, sessionId, 'phone', join(outDir, `outbound-reveal-phone-${theme}.png`));
+          for (const viewport of Object.keys(VIEWPORTS)) {
+            await shoot(cdp, sessionId, viewport, join(outDir, `outbound-gate-${viewport}-${theme}.png`));
+          }
+        }
+        await setTheme(cdp, sessionId, 'dark');
+        const gateZoom = await zoomed(cdp, sessionId, join(outDir, 'outbound-gate-zoom200-dark.png'));
+        record('nothing overflows or is clipped at 200% zoom: outbound gate', gateZoom.overflow <= 0 && gateZoom.clipped.length === 0,
+          `overflow=${gateZoom.overflow}px clipped=${JSON.stringify(gateZoom.clipped)}`);
+        const gateLayout = await phoneLayout(cdp, sessionId, '#reveal-open');
+        record('Reveal is inside the first 390x844 screen, with no overflow or clipping',
+          gateLayout.overflow <= 0 && gateLayout.clipped.length === 0 && gateLayout.actionBottom <= gateLayout.height,
+          `overflow=${gateLayout.overflow}px reveal-bottom=${gateLayout.actionBottom}px of ${gateLayout.height}px`);
+
+        // One wrong code: the adjacent note must say so and count down.
+        const wrong = created.code === '000' ? '111' : '000';
+        const afterWrong = await evaluate(cdp, sessionId, `
+          (async () => {
+            document.getElementById('reveal-code').value = ${JSON.stringify(wrong)};
+            document.getElementById('reveal-open').click();
+            for (let i = 0; i < 50; i += 1) {
+              if (/not right/.test(document.getElementById('reveal-note').textContent)) break;
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            return document.getElementById('reveal-note').textContent;
+          })()
+        `);
+        record('a wrong code is refused beside the field', /not right/.test(afterWrong) && /2 tries/.test(afterWrong), afterWrong);
+        for (const theme of THEMES) {
+          await setTheme(cdp, sessionId, theme);
+          await shoot(cdp, sessionId, 'phone', join(outDir, `outbound-wrong-code-phone-${theme}.png`));
         }
         await setTheme(cdp, sessionId, 'dark');
         await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
+
+        const revealed = await evaluate(cdp, sessionId, `
+          (async () => {
+            document.getElementById('reveal-code').value = ${JSON.stringify(created.code)};
+            document.getElementById('reveal-open').click();
+            for (let i = 0; i < 80; i += 1) {
+              if (document.getElementById('app').dataset.state === 'revealed') break;
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            const values = [...document.querySelectorAll('#revealed-fields .field-value')];
+            return {
+              state: document.getElementById('app').dataset.state,
+              masked: values.filter((node) => node.classList.contains('masked')).length,
+              rows: values.length,
+              secretShown: values.some((node) => node.textContent.includes('not-a-real-token')),
+            };
+          })()
+        `);
+        record('the right code reveals every row with the secret masked',
+          revealed.state === 'revealed' && revealed.rows === 4 && revealed.masked === 1 && !revealed.secretShown,
+          JSON.stringify(revealed));
+        for (const theme of THEMES) {
+          await setTheme(cdp, sessionId, theme);
+          for (const viewport of Object.keys(VIEWPORTS)) {
+            await shoot(cdp, sessionId, viewport, join(outDir, `outbound-revealed-masked-${viewport}-${theme}.png`));
+          }
+        }
+        const shown = await evaluate(cdp, sessionId, `
+          (() => {
+            const toggle = [...document.querySelectorAll('#revealed-fields button')].find((b) => b.textContent === 'Show');
+            toggle.click();
+            const values = [...document.querySelectorAll('#revealed-fields .field-value')];
+            return { toggle: toggle.textContent, pressed: toggle.getAttribute('aria-pressed'),
+                     secretShown: values.some((node) => node.textContent.includes('not-a-real-token')) };
+          })()
+        `);
+        record('Show reveals only on request, and Copy stays a separate control',
+          shown.toggle === 'Hide' && shown.pressed === 'true' && shown.secretShown, JSON.stringify(shown));
+        for (const theme of THEMES) {
+          await setTheme(cdp, sessionId, theme);
+          await shoot(cdp, sessionId, 'phone', join(outDir, `outbound-revealed-shown-phone-${theme}.png`));
+        }
+        await setTheme(cdp, sessionId, 'dark');
+        const sticky = await stickyArt(cdp, sessionId, join(outDir, 'outbound-revealed-scrolled-desktop-dark.png'));
+        record('on a long wide screen the art stays centred in the window after scrolling',
+          sticky.scrollable > 100 && sticky.scrollY > 100
+            && Math.abs(sticky.artTop - sticky.expectedTop) <= 1 && sticky.artBottom <= sticky.windowHeight,
+          JSON.stringify(sticky));
+        const revealedZoom = await zoomed(cdp, sessionId, join(outDir, 'outbound-revealed-zoom200-dark.png'));
+        record('nothing overflows or is clipped at 200% zoom: revealed values', revealedZoom.overflow <= 0 && revealedZoom.clipped.length === 0,
+          `overflow=${revealedZoom.overflow}px clipped=${JSON.stringify(revealedZoom.clipped)}`);
+        const revealedLayout = await phoneLayout(cdp, sessionId, '#revealed-note');
+        record('the revealed values do not widen or clip at 390px',
+          revealedLayout.overflow <= 0 && revealedLayout.clipped.length === 0,
+          `overflow=${revealedLayout.overflow}px clipped=${JSON.stringify(revealedLayout.clipped)}`);
       } else {
-        record('the outbound reveal gate still renders', false, `could not mint an outbound drop: ${JSON.stringify(created)}`);
+        record('the outbound reveal gate renders', false, `could not mint an outbound drop: ${JSON.stringify(created)}`);
       }
     }
 
@@ -465,7 +793,13 @@ async function main() {
       await navigate(cdp, sessionId, `${broker.baseUrl}/#${'z'.repeat(22)}`);
       const state = await evaluate(cdp, sessionId, "document.getElementById('app').dataset.state");
       record('an unknown capability shows the unavailable screen', state === 'unavailable', `state=${state}`);
-      await shoot(cdp, sessionId, 'phone', join(outDir, 'unavailable-phone-dark.png'));
+      for (const theme of THEMES) {
+        await setTheme(cdp, sessionId, theme);
+        for (const viewport of Object.keys(VIEWPORTS)) {
+          await shoot(cdp, sessionId, viewport, join(outDir, `unavailable-${viewport}-${theme}.png`));
+        }
+      }
+      await setTheme(cdp, sessionId, 'dark');
       await cdp.send('Emulation.clearDeviceMetricsOverride', {}, sessionId);
     }
   } finally {
