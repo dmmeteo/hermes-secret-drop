@@ -183,9 +183,10 @@ and reads none of them, and behaves exactly as it did before.
   the `hermes-drop/outbound/v1` AAD label all keep their spelling. The new
   `test/compat-identifiers.test.js` pins the crypto labels and the plugin id as
   literals, because the round-trip tests import the same constant on both sides and
-  would not notice a rename. Existing installs need no action. The repository URLs in
-  `package.json` still name `dmmeteo/hermes-drop` until the GitHub repository is
-  renamed.
+  would not notice a rename. Existing installs need no action. The GitHub repository
+  is now `dmmeteo/hermes-secret-drop`; GitHub redirects the old `dmmeteo/hermes-drop`
+  name, so existing clones and links keep working, and `git remote set-url origin
+  git@github.com:dmmeteo/hermes-secret-drop.git` updates a clone.
 
 - **The browser page is redesigned ("Aperture").** Every screen uses one anatomy:
   - status and clock
@@ -320,4 +321,4 @@ either. Not end-to-end encryption — the broker holds the decryption key. Requi
 a patched Hermes. See [SECURITY.md](SECURITY.md) and the README's Limitations
 section for the full list.
 
-[0.4.0]: https://github.com/dmmeteo/hermes-drop/releases/tag/v0.4.0
+[0.4.0]: https://github.com/dmmeteo/hermes-secret-drop/releases/tag/v0.4.0

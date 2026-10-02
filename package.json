@@ -14,13 +14,13 @@
     "discord",
     "telegram"
   ],
-  "homepage": "https://github.com/dmmeteo/hermes-drop#readme",
+  "homepage": "https://github.com/dmmeteo/hermes-secret-drop#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dmmeteo/hermes-drop.git"
+    "url": "git+https://github.com/dmmeteo/hermes-secret-drop.git"
   },
   "bugs": {
-    "url": "https://github.com/dmmeteo/hermes-drop/issues"
+    "url": "https://github.com/dmmeteo/hermes-secret-drop/issues"
   },
   "license": "MIT",
   "author": "dmmeteo",
