@@ -364,9 +364,19 @@ def test_a_stamped_secondary_profile_with_no_adapter_fails_closed(
 ) -> None:
     """``_authorization_adapter`` refuses to fall back to the default profile's
     same-platform adapter (``gateway/authz_mixin.py:91-97``) — that would send
-    replies out of the wrong bot."""
+    replies out of the wrong bot.
+
+    Multiplexing is on because only a multiplex gateway serves secondary profiles
+    and populates ``_profile_adapters``. Hermes 0.21.5's ``_intake_adapter_for``
+    reads a non-multiplex gateway as standalone, one adapter per platform, and
+    answers with the primary. With multiplexing off, this arrangement no longer
+    describes a secondary profile at all."""
     telegram = StubAdapter(Platform.TELEGRAM)
-    runner = StubRunner({Platform.TELEGRAM: telegram}, profile_adapters={"secondary": {}})
+    runner = StubRunner(
+        {Platform.TELEGRAM: telegram},
+        profile_adapters={"secondary": {}},
+        config=GatewayConfig(multiplex_profiles=True),
+    )
 
     # A restored source, i.e. no transport provenance, stamped with a profile
     # whose adapter never connected.
@@ -385,8 +395,11 @@ def test_the_object_handed_to_adapter_resolution_is_the_captured_one(
     sources, origin_mod, registry, bound, monkeypatch
 ) -> None:
     """Identity assertion. If any copy, replace, or reconstruction crept in,
-    ``_adapter_for_source`` would lose ``_transport_adapter_ref`` and
-    ``delivered_via_upstream_relay`` and start resolving by platform lookup."""
+    adapter resolution would lose ``_transport_adapter_ref`` and
+    ``delivered_via_upstream_relay`` and start resolving by platform lookup.
+
+    Spies on whichever seam the installed Hermes mixin has, so the assertion
+    holds on 0.21.3 (``_adapter_for_source``) and 0.21.5+ (``_delivery_adapter_for``)."""
     telegram = StubAdapter(Platform.TELEGRAM)
     runner = StubRunner({Platform.TELEGRAM: telegram})
     source = telegram.build_source(
@@ -395,14 +408,15 @@ def test_the_object_handed_to_adapter_resolution_is_the_captured_one(
     sources.capture(event=make_event(source), registry=registry, session_key="s")
     bound(platform="telegram", chat_id="c", session_key="s")
 
+    seam = _installed_adapter_seam()
     seen = []
-    real = runner._adapter_for_source
+    real = getattr(runner, seam)
 
     def spy(arg):
         seen.append(arg)
         return real(arg)
 
-    monkeypatch.setattr(runner, "_adapter_for_source", spy)
+    monkeypatch.setattr(runner, seam, spy)
     origin = origin_mod.resolve_origin(registry=registry, runner=runner)
 
     assert len(seen) == 1
@@ -417,8 +431,8 @@ def test_relay_delivered_sources_resolve_to_the_relay_adapter(
 ) -> None:
     """``delivered_via_upstream_relay`` is excluded from ``to_dict``
     (``gateway/session.py:194-206``) — no reconstruction can carry it — and it is
-    what ``_adapter_for_source`` keys relay delivery off
-    (``gateway/authz_mixin.py:110-119``). Keeping the real object is what makes
+    what the gateway's adapter resolution keys relay delivery off
+    (``gateway/authz_mixin.py``). Keeping the real object is what makes
     this work at all."""
     relay = StubAdapter(Platform.RELAY)
     discord = StubAdapter(Platform.DISCORD)
@@ -435,6 +449,105 @@ def test_relay_delivered_sources_resolve_to_the_relay_adapter(
 
     origin = origin_mod.resolve_origin(registry=registry, runner=runner)
     assert origin.adapter is relay
+
+
+# ── the adapter-resolution seam, across Hermes versions ────────────────────
+#
+# Hermes 0.21.5 removed ``GatewayAuthorizationMixin._adapter_for_source`` and split
+# it into ``_intake_adapter_for`` / ``_delivery_adapter_for`` (upstream
+# ``c70565ef30``). Resolution swallows exceptions into ``no_adapter``, so that
+# rename degraded every post into a silent refusal. These pin the seam choice
+# independently of the installed Hermes, and fail loudly if it moves again.
+
+_SEAMS = ("_delivery_adapter_for", "_adapter_for_source")
+
+
+def _installed_adapter_seam() -> str:
+    from gateway.authz_mixin import GatewayAuthorizationMixin
+
+    for name in _SEAMS:
+        if callable(getattr(GatewayAuthorizationMixin, name, None)):
+            return name
+    raise AssertionError(
+        "the installed GatewayAuthorizationMixin exposes neither _delivery_adapter_for nor "
+        "_adapter_for_source; hermes-drop would refuse every post with no_adapter"
+    )
+
+
+def test_the_installed_gateway_exposes_an_adapter_seam_drop_knows() -> None:
+    """Canary: a third rename must fail here, not as ``no_adapter`` everywhere."""
+    assert _installed_adapter_seam() in _SEAMS
+
+
+class _SeamRunner:
+    """A runner offering exactly the seams named, each recording its calls.
+
+    ``adapters`` is populated on purpose: a resolver that fell back to a platform
+    lookup when no seam answered would find an adapter here and be caught."""
+
+    def __init__(self, adapter, *seams, raises: bool = False, answer: object = "adapter"):
+        self.adapters = {Platform.TELEGRAM: adapter}
+        self.calls: list = []
+        for name in seams:
+            def seam(source, _name=name):
+                self.calls.append((_name, source))
+                if raises:
+                    raise RuntimeError("adapter resolution exploded")
+                return adapter if answer == "adapter" else answer
+
+            setattr(self, name, seam)
+
+
+def _captured_telegram(sources, registry, bound):
+    telegram = StubAdapter(Platform.TELEGRAM)
+    source = telegram.build_source(chat_id="c", chat_type="dm", user_id="u")
+    sources.capture(event=make_event(source), registry=registry, session_key="s")
+    bound(platform="telegram", chat_id="c", session_key="s")
+    return telegram, source
+
+
+@pytest.mark.parametrize("seam", _SEAMS)
+def test_either_hermes_seam_resolves_the_origin(seam, sources, origin_mod, registry, bound) -> None:
+    telegram, source = _captured_telegram(sources, registry, bound)
+    runner = _SeamRunner(telegram, seam)
+
+    origin = origin_mod.resolve_origin(registry=registry, runner=runner)
+
+    assert origin.adapter is telegram
+    assert runner.calls == [(seam, source)]
+
+
+def test_the_delivery_seam_wins_when_both_exist(sources, origin_mod, registry, bound) -> None:
+    """Drop posts and edits, so it asks "which bot answers", not "which received"."""
+    telegram, source = _captured_telegram(sources, registry, bound)
+    runner = _SeamRunner(telegram, *_SEAMS)
+
+    origin_mod.resolve_origin(registry=registry, runner=runner)
+
+    assert runner.calls == [("_delivery_adapter_for", source)]
+
+
+def test_a_runner_with_no_known_seam_fails_closed_without_a_platform_fallback(
+    sources, origin_mod, registry, bound
+) -> None:
+    telegram, _source = _captured_telegram(sources, registry, bound)
+    runner = _SeamRunner(telegram)  # no seam; runner.adapters still has telegram
+
+    assert origin_mod.resolve_origin(registry=registry, runner=runner) == {"error": "no_adapter"}
+    assert telegram.sent == []
+
+
+@pytest.mark.parametrize("seam", _SEAMS)
+@pytest.mark.parametrize("failure", ["raises", "answers_none"])
+def test_a_seam_that_raises_or_answers_none_fails_closed(
+    seam, failure, sources, origin_mod, registry, bound
+) -> None:
+    telegram, _source = _captured_telegram(sources, registry, bound)
+    runner = _SeamRunner(
+        telegram, seam, raises=failure == "raises", answer=None if failure == "answers_none" else "adapter"
+    )
+
+    assert origin_mod.resolve_origin(registry=registry, runner=runner) == {"error": "no_adapter"}
 
 
 # ── the origin object itself ───────────────────────────────────────────────

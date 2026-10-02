@@ -110,7 +110,7 @@ fields you actually need, or say in the conversation that this deployment cannot
 take a secret this way.
 
 **The form is in English; `description` is the one exception.** Every string the
-page draws for itself — the Hermes Drop row, the heading defaults, the input
+page draws for itself — the Hermes Secret Drop row, the heading defaults, the input
 label, the button, the file counts, the status line and every error — is
 English, and `label` is English too, because it becomes the main heading and
 sits directly against that chrome. `description` is the only place another

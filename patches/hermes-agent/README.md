@@ -1,6 +1,6 @@
 # Historical Hermes core patches (retired)
 
-Hermes Drop previously carried two patches for direct plugin slash-command
+Hermes Secret Drop previously carried two patches for direct plugin slash-command
 session binding and slash-access aliasing. They were required only because the
 plugin registered `/drop` on the pre-agent plugin-command path.
 

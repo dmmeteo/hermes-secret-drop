@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Host-side installer and preflight for the Hermes Drop integration.
+# Host-side installer and preflight for the Hermes Secret Drop integration.
 #
 # Two independent jobs, deliberately kept in one script because an operator runs
 # them minutes apart:
@@ -172,9 +172,9 @@ do_install() {
   skill_target="$home/skills/$SKILL_ID"
   if [ -L "$skill_target" ]; then
     [ "$(readlink -f "$skill_target")" = "$(readlink -f "$SKILL_SRC")" ] \
-      || fail "${skill_target} is a symlink not owned by Hermes Drop; nothing was changed"
+      || fail "${skill_target} is a symlink not owned by Hermes Secret Drop; nothing was changed"
   elif [ -e "$skill_target" ] && [ ! -f "$skill_target/$SKILL_MARKER" ]; then
-    fail "${skill_target} already exists and is not marked as a Hermes Drop install; nothing was changed"
+    fail "${skill_target} already exists and is not marked as a Hermes Secret Drop install; nothing was changed"
   fi
 
   config="$home/config.yaml"

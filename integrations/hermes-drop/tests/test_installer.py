@@ -216,7 +216,7 @@ def test_install_refuses_to_replace_an_unrelated_drop_skill(profile: Path) -> No
     result = run_installer("install", home=profile, expect_ok=False)
 
     assert result.returncode != 0
-    assert "not marked as a Hermes Drop install" in result.stderr
+    assert "not marked as a Hermes Secret Drop install" in result.stderr
     assert (skill / "SKILL.md").read_text(encoding="utf-8").endswith("unrelated\n")
     assert (profile / "config.yaml").read_bytes() == before
     assert not (profile / "plugins" / "hermes-drop").exists()

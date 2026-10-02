@@ -6,7 +6,7 @@ Status: **approved product baseline**
 
 Allow Hermes to share a short private text value with the user through an origin-bound, short-lived, one-time drop instead of placing the value in chat.
 
-This is the outbound direction of Hermes Drop: **Hermes → current conversation user**.
+This is the outbound direction of Hermes Secret Drop: **Hermes → current conversation user**.
 
 ## Deliberate scope
 
@@ -76,13 +76,28 @@ contains.
 - Copy copies the real value whether or not the field is currently revealed, so a
   password can be pasted without ever being displayed on screen.
 
-The page must also **explain itself**, in the page and not in a footnote:
+The page must also **explain itself**. What revealing costs is on the screen itself,
+above the Reveal action, and never folded away:
 
-- that this is a one-time, encrypted Hermes Drop, and what that means — the server
-  holds ciphertext, and the key is in the link's fragment, which browsers never send;
-- its TTL, as a live countdown rather than a duration baked into the copy;
-- that after a successful reveal it **cannot be opened again**, by anyone;
-- what the 3-digit code is for.
+- that the drop can be revealed **once**, and that after a successful reveal it
+  **cannot be opened again**, by anyone;
+- its TTL, as a live countdown in the page's status row rather than a duration baked
+  into the copy;
+- once revealed, that the link is spent and reloading will not bring the values back.
+
+How the drop is protected is part of the same page, in its "About this drop"
+disclosure, so the code box and the action are not pushed below a paragraph of
+mechanics:
+
+- that the value is encrypted, the server holds ciphertext, and the key is in the
+  link's fragment, which browsers do not send to servers;
+- what the 3-digit code is for: it stops link previews, scanners and antivirus from
+  opening the drop, and it is not a password.
+
+The page states nothing about itself that the threat model does not support. In
+particular, it does not say that only one browser can open the drop (before a claim,
+anyone holding the link and the code can), or that nothing is logged (the broker keeps
+an access log of method, path and status).
 
 ### Bounded schema validation
 

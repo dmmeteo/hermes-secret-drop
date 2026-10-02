@@ -99,7 +99,7 @@ class StubAdapter:
 
 class StubRunner(GatewayAuthorizationMixin):
     """Minimal ``GatewayRunner`` stand-in carrying the real adapter-resolution
-    logic (``gateway/authz_mixin.py:101-149``) rather than a reimplementation."""
+    logic (``gateway/authz_mixin.py``) rather than a reimplementation."""
 
     def __init__(
         self,

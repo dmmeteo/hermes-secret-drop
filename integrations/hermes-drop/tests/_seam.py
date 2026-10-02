@@ -19,7 +19,8 @@ substitutions and no others:
 
 * ``adapters`` are :class:`_stubs.StubAdapter`s — real ``build_source``
   provenance, recording send/edit, no network. The gateway resolves them through
-  the real ``_adapter_for_source``.
+  its real adapter-resolution seam (``_delivery_adapter_for`` on Hermes 0.21.5+,
+  ``_adapter_for_source`` before).
 * ``_handle_message_with_agent`` is an ``AsyncMock``. It is the *single* place
   ``_handle_message`` enters the agent (``gateway/run.py:14940``), so "the model
   was never asked" is exactly "this mock was never awaited".

@@ -1288,3 +1288,40 @@ async def test_status_edit_retries_are_bounded(reconciler, journal, plugin, lane
     assert summary["edit_retry_pending"] == []
     assert summary["retry_lanes"] == []
     assert summary["failed"] == []
+
+
+# ── restart recovery resolves through the same version-tolerant seam ───────
+
+
+class _SeamOnlyRunner:
+    """Exactly one adapter-resolution seam, or none; ``adapters`` is populated so
+    a platform-lookup fallback would be caught rather than hidden."""
+
+    def __init__(self, adapter, seam=None):
+        self.adapters = {adapter.platform: adapter}
+        self.calls: list = []
+        if seam is not None:
+            def resolve(source):
+                self.calls.append(source)
+                return adapter
+
+            setattr(self, seam, resolve)
+
+
+@pytest.mark.parametrize("seam", ["_delivery_adapter_for", "_adapter_for_source"])
+def test_a_journalled_lane_resolves_through_either_hermes_seam(journal, plugin, lane, seam) -> None:
+    runner, adapter, source = lane()
+    entry = _waiting(journal, plugin, source, adapter, runner, drop_id="S" * 22)
+    only = _SeamOnlyRunner(adapter, seam)
+
+    origin = plugin.drop.reconciler.origin_for_entry(entry, runner=only)
+
+    assert origin is not None and origin.adapter is adapter
+    assert only.calls == [source]
+
+
+def test_a_journalled_lane_with_no_known_seam_stays_unresolved(journal, plugin, lane) -> None:
+    runner, adapter, source = lane()
+    entry = _waiting(journal, plugin, source, adapter, runner, drop_id="N" * 22)
+
+    assert plugin.drop.reconciler.origin_for_entry(entry, runner=_SeamOnlyRunner(adapter)) is None

@@ -45,7 +45,7 @@ def test_the_suite_left_the_real_profile_exactly_as_it_found_it() -> None:
 
     Not "the plugin is absent from the real profile" — that was the right check
     while Drop was unreleased and is the wrong one now. Anyone who installs
-    Hermes Drop and then runs its test suite has it present, legitimately, and a
+    Hermes Secret Drop and then runs its test suite has it present, legitimately, and a
     guard that fails for them is a guard nobody keeps.
 
     The invariant that actually matters, and the one this file's docstring always

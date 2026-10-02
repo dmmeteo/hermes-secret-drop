@@ -99,15 +99,21 @@ try {
   const html = await page.text();
   check('page loads over the plain request target', page.status === 200);
   check(
-    'page is the accepted Variant A form, branded Hermes Drop',
+    'page is the accepted Variant A form, branded Hermes Secret Drop',
     html.includes('>Send</button>') &&
       html.includes('<h1 id="form-title">Send privately</h1>') &&
-      html.includes('>Hermes Drop<') &&
-      html.includes('<title>Hermes Drop</title>'),
+      html.includes('>Hermes Secret Drop<') &&
+      html.includes('<title>Hermes Secret Drop</title>'),
   );
   check('page carries a strict self-only CSP', /default-src 'none'/.test(page.headers.get('content-security-policy') ?? ''));
   check('page carries no-referrer', page.headers.get('referrer-policy') === 'no-referrer');
-  for (const asset of ['/assets/app.js', '/assets/app.css']) {
+  for (const asset of [
+    '/assets/app.js',
+    '/assets/app.css',
+    '/assets/fonts/FixelDisplay-Medium.woff2',
+    '/assets/fonts/FixelText-Regular.woff2',
+    '/assets/fonts/GeistMono-Regular-latin.woff2',
+  ]) {
     const response = await fetch(`${origin}${asset}`);
     check(`asset ${asset} is self-hosted`, response.status === 200);
   }

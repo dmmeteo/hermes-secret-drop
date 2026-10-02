@@ -1,5 +1,5 @@
 {
-  "name": "hermes-drop",
+  "name": "hermes-secret-drop",
   "version": "0.5.0",
   "description": "Self-hosted broker and Hermes plugin that asks a user for a secret through a one-shot, origin-bound, browser-encrypted web form (RFC 9180 HPKE) instead of the chat",
   "keywords": [
@@ -14,13 +14,13 @@
     "discord",
     "telegram"
   ],
-  "homepage": "https://github.com/dmmeteo/hermes-drop#readme",
+  "homepage": "https://github.com/dmmeteo/hermes-secret-drop#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dmmeteo/hermes-drop.git"
+    "url": "git+https://github.com/dmmeteo/hermes-secret-drop.git"
   },
   "bugs": {
-    "url": "https://github.com/dmmeteo/hermes-drop/issues"
+    "url": "https://github.com/dmmeteo/hermes-secret-drop/issues"
   },
   "license": "MIT",
   "author": "dmmeteo",

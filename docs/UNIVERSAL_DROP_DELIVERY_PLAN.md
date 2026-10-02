@@ -8,7 +8,7 @@
 
 ## Product decision
 
-Hermes Drop has one user-facing request flow, one link, and one browser form.
+Hermes Secret Drop has one user-facing request flow, one link, and one browser form.
 
 The sender chooses **at send time** between:
 

@@ -2,7 +2,7 @@
 
 ## Please read this first
 
-**Hermes Drop has not had a formal or third-party security audit.** It was built
+**Hermes Secret Drop has not had a formal or third-party security audit.** It was built
 against a written threat model and has substantial automated test coverage,
 including RFC 9180 test vectors, but that is not an audit and should not be read
 as one.

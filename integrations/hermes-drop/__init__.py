@@ -1,4 +1,4 @@
-"""Hermes Drop — origin-bound private input.
+"""Hermes Secret Drop — origin-bound private input.
 
 Source of truth is this repo (``secure-secret-handoff``); the installer
 symlinks this directory into ``$HERMES_HOME/plugins/hermes-drop``. A live-only

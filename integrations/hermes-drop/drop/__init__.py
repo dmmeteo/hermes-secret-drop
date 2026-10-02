@@ -1,4 +1,4 @@
-"""Hermes Drop internals.
+"""Hermes Secret Drop internals.
 
 Import discipline for this whole package: **nothing here may import
 ``gateway.run`` at module scope.** Two reasons, both verified against source:

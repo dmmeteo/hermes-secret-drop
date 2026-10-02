@@ -1,4 +1,4 @@
-# Hermes Drop broker. Two stages so the browser bundle is built with the dev
+# Hermes Secret Drop broker. Two stages so the browser bundle is built with the dev
 # dependency (esbuild) but the runtime image ships production deps only.
 FROM node:22-alpine AS build
 WORKDIR /app

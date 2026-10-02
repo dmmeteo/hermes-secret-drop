@@ -20,12 +20,12 @@ Never place a secret in command arguments, Bash source, stdout, chat, or your an
   safe Claude-side flow cannot do that and stop.
 - Private file input is not supported by the standalone Claude client. Do not
   mint a file-capable form or claim a file through another command. Tell the
-  user to use Hermes Drop for private files.
+  user to use Hermes Secret Drop for private files.
 - Intent to receive a newly generated credential: run `claude-drop
   send-generated` with non-secret title/label/kind/length options. The broker
   generates the value; it never enters this transcript.
 - Existing outbound plaintext is unsupported here because a Bash/tool argument
-  would persist it. Use Hermes Drop instead.
+  would persist it. Use Hermes Secret Drop instead.
 - On a headless Herdr worker without clipboard access, the notice is written to
   a private 0600 file and only its path is returned. Do not print the file. If
   the human cannot access that host path, stop; do not route it through chat.

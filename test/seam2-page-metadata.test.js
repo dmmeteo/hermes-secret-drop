@@ -43,7 +43,7 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.match(html, /<button class="primary" id="send" type="button">Send<\/button>/);
       // Identity is a quiet row beside the clock now, not an uppercase eyebrow
       // competing with the heading under it.
-      assert.match(html, /class="drop-id">Hermes Drop</);
+      assert.match(html, /class="drop-id">Hermes Secret Drop</);
     });
 
     it('carries no decorative microcopy the sender has to read past', () => {
@@ -59,6 +59,14 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.equal((form.match(/<p id="request-description"/g) || []).length, 1);
     });
 
+    it('states the one-send consequence beside the action, not inside the disclosure', () => {
+      const form = html.slice(html.indexOf('<section id="form"'), html.indexOf('<section id="reveal"'));
+      const visible = form.replace(/<details[\s\S]*?<\/details>/g, '');
+      assert.match(visible, /Send once\. No edits afterwards\./);
+      assert.ok(visible.indexOf('No edits afterwards') < visible.indexOf('id="send"'), 'read before the action');
+      assert.ok(visible.indexOf('No edits afterwards') > visible.indexOf('id="request-description"'), 'and after the request');
+    });
+
     it('states the one-shot and chat promises once, in the page\'s own voice', () => {
       // Demoted out of the primary hierarchy, not deleted: these are the only
       // truthful claims the page makes about itself, and they sit in static markup
@@ -69,8 +77,8 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.ok(!/id="request-description"/.test(about), 'nothing rewritable lives in it');
     });
 
-    it('carries the Hermes Drop user-facing branding', () => {
-      assert.match(html, /<title>Hermes Drop<\/title>/, 'product name');
+    it('carries the Hermes Secret Drop user-facing branding', () => {
+      assert.match(html, /<title>Hermes Secret Drop<\/title>/, 'product name');
       // The heading carries an id because the page rewrites it per payload kind, and
       // replaces it outright when a drop was minted with a label. What is pinned here
       // is the SHIPPED default: the generic wording a drop with no descriptor still
@@ -88,7 +96,7 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
         'the word "handoff" must not appear in the public document',
       );
       // Branding must not have smuggled chrome back in.
-      assert.ok(!/<img|<svg|<header|<nav/.test(html), 'still no logo or header chrome');
+      assert.ok(!/<img|<header|<nav/.test(html), 'still no logo or header chrome');
       // One heading per screen and nothing added. Five since the outbound direction
       // landed: the inbound form, its receipt, the uniform unavailable, and the
       // reveal gate and its revealed values (docs/OUTBOUND_SECRET_DROP_MVP.md).
@@ -115,6 +123,24 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       }
     });
 
+    it('draws its one piece of art as inert inline markup outside every screen', () => {
+      // The contour behind the heading is the only <svg> the page may carry, and it
+      // is decoration: hidden from assistive technology, never focusable, and unable
+      // to fetch, link or run anything -- which is also what lets `img-src 'none'`
+      // stand. It sits before the first screen, so no screen's copy can move it and
+      // no rewritable element is anywhere inside it.
+      const svgs = html.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/g) || [];
+      assert.equal(svgs.length, 1, 'exactly one inline svg');
+      assert.equal((html.match(/<svg\b/g) || []).length, 1);
+      const [svg] = svgs;
+      assert.match(svg, /^<svg\b[^>]*\baria-hidden="true"/, 'hidden from assistive technology');
+      assert.match(svg, /^<svg\b[^>]*\bfocusable="false"/, 'never focusable');
+      assert.doesNotMatch(svg, /<(?:a|image|use|script|foreignObject|style|animate\w*|set)\b/i);
+      assert.doesNotMatch(svg, /\b(?:xlink:)?href\s*=|xmlns|\bid="(?:form|ttl|reveal)/i);
+      assert.doesNotMatch(svg.replace(/url\(#[\w-]+\)/g, ''), /url\(/, 'only internal gradient references');
+      assert.ok(html.indexOf('<svg') < html.indexOf('<section id="form"'), 'outside every screen');
+    });
+
     it('is one always-visible composer with textarea, file picker and one send button', () => {
       // Scoped to the inbound form, because the document also carries the outbound
       // reveal gate now. What must stay true is that *this* screen is one composer:
@@ -132,7 +158,7 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.doesNotMatch(html, /id="(?:text|files)-mode"/);
       assert.match(form, /id="files"/);
       assert.match(form, /id="send"/);
-      assert.ok(!/<img|<svg|<header|<nav/.test(html), 'no logo or header chrome');
+      assert.ok(!/<img|<header|<nav/.test(html), 'no logo or header chrome');
 
       // The reveal gate is the only other interactive screen, and it is exactly as
       // narrow: one code box and one Reveal.
@@ -216,9 +242,63 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.match(page.headers.get('permissions-policy'), /geolocation=\(\)/);
     });
 
+    it('pins the whole CSP, and fonts are the only thing it widened', () => {
+      // The page's type is self-hosted, so fonts are allowed from this origin and
+      // from nowhere else. Every other directive is the one this page has always
+      // sent -- `img-src` included, which is why the contour art is inline markup
+      // rather than a fetched image.
+      assert.equal(
+        page.headers.get('content-security-policy'),
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+          + "img-src 'none'; font-src 'self'; base-uri 'none'; form-action 'none'; "
+          + "frame-ancestors 'none'",
+      );
+    });
+
     it('sends no cookies and advertises no server software', () => {
       assert.equal(page.headers.get('set-cookie'), null);
       assert.equal(page.headers.get('server'), null);
+    });
+  });
+
+  describe('the self-hosted fonts', () => {
+    const FONTS = ['FixelDisplay-Medium.woff2', 'FixelText-Regular.woff2', 'GeistMono-Regular-latin.woff2'];
+
+    it('serves each licensed font from this origin, byte for byte', async () => {
+      for (const name of FONTS) {
+        const response = await fetch(`${broker.baseUrl}/assets/fonts/${name}`);
+        assert.equal(response.status, 200, name);
+        assert.equal(response.headers.get('content-type'), 'font/woff2', name);
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff', name);
+        assert.equal(response.headers.get('cross-origin-resource-policy'), 'same-origin', name);
+        assert.equal(response.headers.get('cache-control'), 'no-store', name);
+        const onDisk = await readFile(new URL(`../src/public/fonts/${name}`, import.meta.url));
+        assert.deepEqual(Buffer.from(await response.arrayBuffer()), onDisk, name);
+      }
+    });
+
+    it('ships the licence beside every font it serves', async () => {
+      for (const licence of ['OFL-Fixel.txt', 'OFL-Geist.txt']) {
+        const text = await readFile(new URL(`../src/public/fonts/${licence}`, import.meta.url), 'utf8');
+        assert.match(text, /SIL OPEN FONT LICENSE/i, licence);
+      }
+    });
+
+    it('declares only fonts the server actually serves', async () => {
+      const css = await (await fetch(`${broker.baseUrl}/assets/app.css`)).text();
+      const urls = [...css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/g)].map((match) => match[1]);
+      assert.ok(urls.length >= FONTS.length, 'every font is declared');
+      for (const url of urls) {
+        assert.match(url, /^\/assets\/fonts\/[\w-]+\.woff2$/, `${url} is a same-origin font route`);
+        const response = await fetch(`${broker.baseUrl}${url}`);
+        assert.equal(response.status, 200, url);
+      }
+    });
+
+    it('answers an unknown font path with the page, like any unknown path', async () => {
+      const response = await fetch(`${broker.baseUrl}/assets/fonts/unknown.woff2`);
+      assert.equal(response.status, 404);
+      assert.match(response.headers.get('content-type'), /^text\/html/);
     });
   });
 
