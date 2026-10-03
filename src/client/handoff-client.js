@@ -11,6 +11,7 @@
 import { base64UrlToBytes, bytesToBase64Url, isBase64Url } from '../base64url.js';
 import { deliveryFor, formContractDigest, validateFormContract } from '../form-contract.js';
 import { FORM_ENVELOPE_VERSION, PAYLOAD_KIND_FORM, encodeFormContainer } from '../form-container.js';
+import { checkMetadataResponse } from './link-check.js';
 import {
   FILE_ENVELOPE_VERSION,
   PAYLOAD_KIND_FILES,
@@ -60,16 +61,20 @@ export function readCapability(hash) {
   return isBase64Url(value, CAPABILITY_LENGTH) ? value : null;
 }
 
-export async function fetchMetadata({ capability, fetchImpl = fetch, origin = '' }) {
+export async function fetchMetadata({ capability, fetchImpl = fetch, origin = '', signal }) {
   const response = await fetchImpl(`${origin}${METADATA_PATH}`, {
     method: 'POST',
     headers: { [CAPABILITY_HEADER]: capability },
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
+    signal,
   });
-  if (!response.ok) return null;
+  if (!checkMetadataResponse(response)) return null;
 
   const metadata = await response.json();
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('Malformed link check');
+  }
   // The envelope version is a fact about the drop's payload kind, not a choice:
   // a `files` drop that did not say v2, or a `text` drop that did not say v1, is
   // a broker this page does not understand, and the safe reading of that is the

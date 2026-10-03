@@ -15,6 +15,7 @@
 //     the broker is sent only *after* a successful decryption — an ack before that
 //     would destroy a payload this page could not read.
 import { base64UrlToBytes, bytesToBase64Url } from '../base64url.js';
+import { checkMetadataResponse } from './link-check.js';
 import {
   CLAIM_ID_LENGTH,
   OUTBOUND_ALG,
@@ -46,7 +47,7 @@ export function newClaimId() {
   return bytesToBase64Url(bytes);
 }
 
-const request = (path, { capability, body, fetchImpl, origin }) =>
+const request = (path, { capability, body, fetchImpl, origin, signal }) =>
   fetchImpl(`${origin}${path}`, {
     method: 'POST',
     headers: {
@@ -56,6 +57,7 @@ const request = (path, { capability, body, fetchImpl, origin }) =>
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
+    signal,
   });
 
 /**
@@ -63,11 +65,14 @@ const request = (path, { capability, body, fetchImpl, origin }) =>
  * which algorithm the payload will arrive under. Null for every unavailable reason,
  * exactly as the inbound metadata fetch is — the page never learns which one.
  */
-export async function fetchOutboundMetadata({ capability, fetchImpl = fetch, origin = '' }) {
-  const response = await request(REVEAL_METADATA_PATH, { capability, fetchImpl, origin });
-  if (!response.ok) return null;
+export async function fetchOutboundMetadata({ capability, fetchImpl = fetch, origin = '', signal }) {
+  const response = await request(REVEAL_METADATA_PATH, { capability, fetchImpl, origin, signal });
+  if (!checkMetadataResponse(response)) return null;
 
   const metadata = await response.json();
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('Malformed link check');
+  }
   // An algorithm this bundle cannot open is a broker it must not put a code into:
   // the user would spend an attempt to reach a payload the page could not read.
   if (metadata.alg !== OUTBOUND_ALG) return null;
