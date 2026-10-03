@@ -131,8 +131,30 @@ try {
         }
         const focus = await evaluate(cdp, session, `document.activeElement.id === 'check-retry' && getComputedStyle(document.activeElement).outlineStyle !== 'none'`);
         record(`${direction}: keyboard reaches Retry with visible focus`, focus);
-        await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, session);
+        assert.ok(focus, 'Tab must reach Retry with a visible focus ring');
+        await evaluate(cdp, session, `(() => {
+          window.retryKeyboardEvents = [];
+          const button = document.getElementById('check-retry');
+          for (const type of ['keydown', 'keypress', 'keyup', 'click']) {
+            button.addEventListener(type, event => {
+              window.retryKeyboardEvents.push({ type: event.type, key: event.key ?? null, trusted: event.isTrusted });
+            }, { once: true });
+          }
+        })()`);
+        // Chromium's native Enter activation needs the character event generated
+        // by CR text, as in Puppeteer's CDP keyboard implementation. An empty-text
+        // keyDown/up pair reaches focus but never activates the native button.
+        await cdp.send('Input.dispatchKeyEvent', {
+          type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
+          text: '\r', unmodifiedText: '\r',
+        }, session);
         await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, session);
+        const events = await evaluate(cdp, session, 'window.retryKeyboardEvents');
+        const activated = ['keydown', 'keypress', 'keyup'].every(type =>
+          events.some(event => event.type === type && event.key === 'Enter' && event.trusted)) &&
+          events.filter(event => event.type === 'click' && event.trusted).length === 1;
+        record(`${direction}: keyboard Enter produces a trusted Retry click`, activated, JSON.stringify(events));
+        assert.ok(activated, 'Enter must activate the native Retry button through trusted keyboard events');
       } else if (fault === 'offline') {
         await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true }, session);
         const point = await evaluate(cdp, session, `(() => { const r = document.getElementById('check-retry').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
