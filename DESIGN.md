@@ -68,7 +68,13 @@ layout is the enhancement.
   - Revealed values: one row per field, mono values, masked secrets, and Show/Hide separate
     from Copy. A persistent spent-link warning is shown and there is no clock.
 - **Terminal and transient.** Received; unavailable, which also covers expired; and a
-  loading line shown only while `#app[data-state="loading"]`.
+  loading line shown only while `#app[data-state="loading"]`. A failed link check has
+  its own connection-problem screen with an explicit Retry. It uses the shared status,
+  consequence, action and disclosure anatomy; Retry stays focusable while checking.
+  Network failures, a 20-second deadline (including body reads), malformed JSON and
+  temporary HTTP failures (408, 429, 5xx) reach this screen. Definitive refusals and
+  unsupported metadata still reach the generic unavailable screen. Retry requests
+  metadata on the same link only; it preserves expiry and wrong-code budgets.
 
 ### Intentional differences from the design studies
 
@@ -172,6 +178,7 @@ Chrome, so they are not part of `verify`:
 npm run build
 node scripts/form-screenshots.mjs --out <dir>   # inbound shapes, outbound, terminal states
 node scripts/form-engine-e2e.mjs  --out <dir>   # declarative forms
+node scripts/metadata-retry-e2e.mjs --out <dir> # link-check faults and metadata-only Retry
 ```
 
 They render every screen at 1280×800 and at 390×844 in both themes, and assert:

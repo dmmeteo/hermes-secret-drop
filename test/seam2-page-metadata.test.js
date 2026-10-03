@@ -97,11 +97,9 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       );
       // Branding must not have smuggled chrome back in.
       assert.ok(!/<img|<header|<nav/.test(html), 'still no logo or header chrome');
-      // One heading per screen and nothing added. Five since the outbound direction
-      // landed: the inbound form, its receipt, the uniform unavailable, and the
-      // reveal gate and its revealed values (docs/OUTBOUND_SECRET_DROP_MVP.md).
-      assert.equal(html.match(/<h1/g).length, 5, 'one heading per screen, nothing added');
-      for (const screen of ['form', 'success', 'unavailable', 'reveal', 'revealed']) {
+      // One heading per screen, including the retryable connection problem.
+      assert.equal(html.match(/<h1/g).length, 6, 'one heading per screen');
+      for (const screen of ['form', 'success', 'unavailable', 'reveal', 'revealed', 'check-failed']) {
         assert.match(html, new RegExp(`<section id="${screen}"`), `the ${screen} screen`);
       }
     });
@@ -160,12 +158,16 @@ describe('seam 2: page delivery and capability-authorized metadata', () => {
       assert.match(form, /id="send"/);
       assert.ok(!/<img|<header|<nav/.test(html), 'no logo or header chrome');
 
-      // The reveal gate is the only other interactive screen, and it is exactly as
-      // narrow: one code box and one Reveal.
+      // The reveal gate stays narrow: one code box and one Reveal.
       const gate = html.slice(html.indexOf('<section id="reveal"'), html.indexOf('<section id="revealed"'));
       assert.equal(gate.match(/<button/g).length, 1, 'one action on the gate too');
       assert.equal(gate.match(/<input/g).length, 1, 'and one code box');
-      assert.equal((html.match(/<button/g) || []).length, 3, 'send, file chooser, reveal');
+      assert.equal((html.match(/<button/g) || []).length, 4, 'send, file chooser, reveal, link-check Retry');
+      const check = html.slice(html.indexOf('<section id="check-failed"'), html.indexOf('<section id="unavailable"'));
+      assert.equal(check.match(/<button/g).length, 1, 'one explicit Retry');
+      assert.doesNotMatch(check, /<input|<textarea|<a\b/, 'checking offers no submit, code or replacement link');
+      assert.match(check, /id="check-note"[^>]*role="status"[^>]*aria-live="polite"/);
+      assert.match(check, /id="check-retry"[^>]*aria-describedby="check-description">Retry<\/button>/);
     });
 
     it('has one multi-file picker and Send spans the width', async () => {

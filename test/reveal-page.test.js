@@ -22,6 +22,7 @@ const ELEMENT_IDS = [
   'file-panel', 'files', 'drop-zone', 'file-list', 'file-total',
   'reveal', 'revealed', 'reveal-code', 'reveal-open', 'reveal-note', 'reveal-ttl',
   'revealed-fields', 'revealed-note', 'revealed-title',
+  'check-failed', 'check-retry', 'check-note',
 ];
 
 const CANON = {
@@ -74,6 +75,7 @@ async function loadApp({ hash, origin }) {
   globalThis.window = {
     location: { hash, origin },
     setTimeout: (fn) => fn,
+    clearTimeout() {},
     setInterval: (fn, ms) => {
       const id = nextIntervalId;
       nextIntervalId += 1;
