@@ -730,3 +730,7 @@ other's drops; `test/compat-identifiers.test.js` pins the ones no other test wou
 ## License
 
 [MIT](LICENSE) © 2026 dmmeteo
+
+## For agents
+
+Coding agents start at [AGENTS.md](AGENTS.md).
