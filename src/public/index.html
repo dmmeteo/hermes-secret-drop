@@ -181,6 +181,23 @@
 <p>You can close this page. The link has already been used and cannot be used again.</p>
 </section>
 
+<section id="check-failed" class="status" hidden aria-labelledby="check-title">
+<div class="drop-bar">
+<span class="drop-status drop-status--idle">Connection problem</span>
+</div>
+<h1 id="check-title">Couldn't check this link</h1>
+<p id="check-description">The link check failed or took too long to answer. Try again to check whether the drop is available.</p>
+<p class="consequence"><strong>Checking does not use the link.</strong>Retry checks the same link without sending or revealing anything.</p>
+<div class="actions">
+<p class="meta note-problem" id="check-note" role="status" aria-live="polite"></p>
+<button type="button" class="primary" id="check-retry" aria-describedby="check-description">Retry</button>
+</div>
+<details class="about">
+<summary>About this drop</summary>
+<p>The drop keeps its original expiry. A connection problem does not tell us whether it is still available.</p>
+</details>
+</section>
+
 <section id="unavailable" class="status" hidden>
 <div class="drop-bar">
 <span class="drop-status drop-status--idle">Nothing here</span>

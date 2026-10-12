@@ -11,7 +11,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { claimFileDrop, splitHandoffUrl, startTestBroker } from './helpers/harness.js';
 
-const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total', 'form-title', 'request-description', 'files-limits'];
+const ELEMENT_IDS = ['app', 'form', 'success', 'unavailable', 'secret', 'send', 'note', 'ttl', 'file-panel', 'files', 'drop-zone', 'file-list', 'file-total', 'form-title', 'request-description', 'files-limits', 'check-failed', 'check-retry', 'check-note'];
 
 function fakeDom() {
   function element(id = '') {
@@ -57,6 +57,7 @@ async function loadApp({ hash, origin }) {
       timers.push({ fn, ms });
       return timers.length;
     },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; },
     setInterval: (fn, ms) => {
       const id = nextIntervalId;
       nextIntervalId += 1;

@@ -6,6 +6,13 @@ is `0`, minor versions may carry breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Initial inbound and outbound link checks leave loading after network failure,
+  malformed responses or a 20-second timeout. Temporary failures show a connection
+  problem with an explicit Retry that checks the same link's metadata only. Expired,
+  used and refused links keep the generic unavailable screen.
+
 Plugin `0.6.0`, broker `0.5.0`. The control protocol moves to `version: 2` — an
 additive revision: one optional `claim` request field, one new error, and a
 `protocol_version` on the `create` response. A version 1 client sends none of them

@@ -18,10 +18,11 @@ import { join } from 'node:path';
 export const written = [];
 
 export const CHROME_CANDIDATES = [
+  process.env.CHROME_PATH,
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/google-chrome',
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
-  process.env.CHROME_PATH,
 ].filter(Boolean);
 
 /** Desktop and a small phone. The phone is the one that finds layout bugs. */
@@ -157,10 +158,14 @@ export async function launchChrome(userDataDir) {
     '--disable-component-update',
     'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let diagnostics = '';
+  child.stderr.on('data', (chunk) => { diagnostics = `${diagnostics}${chunk}`.slice(-8000); });
+  child.on('error', (error) => { diagnostics = error.message; });
 
   const portFile = join(userDataDir, 'DevToolsActivePort');
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) break;
     if (existsSync(portFile)) {
       const [port] = (await readFile(portFile, 'utf8')).split('\n');
       if (port) return { child, port: Number(port), binary };
@@ -168,7 +173,7 @@ export async function launchChrome(userDataDir) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   child.kill('SIGKILL');
-  throw new Error('chrome did not publish a devtools port');
+  throw new Error(`chrome did not publish a devtools port: ${diagnostics.trim()}`);
 }
 
 /** One page, attached and with Page events on. */

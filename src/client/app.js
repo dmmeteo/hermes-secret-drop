@@ -7,13 +7,14 @@ import { renderFormFields } from './form-view.js';
 import { fetchMetadata, plaintextByteLength, readCapability, sealBytesEnvelope, sealEnvelope, sealFormEnvelope, submitEnvelope } from './handoff-client.js';
 import { fetchOutboundMetadata, newClaimId, revealSecret } from './reveal-client.js';
 import { renderRevealedFields, writeToClipboard } from './reveal-view.js';
+import { checkLink } from './link-check.js';
 
 const $ = (id) => document.getElementById(id);
 // Built by filtering rather than as a literal, because one page serves both
 // directions and a section is only in the document once its slice has shipped. A
 // missing id is a screen this build cannot show, not a crash on load.
 const screens = Object.fromEntries(
-  ['form', 'success', 'unavailable', 'reveal', 'revealed']
+  ['form', 'success', 'unavailable', 'reveal', 'revealed', 'check-failed']
     .map((name) => [name, $(name)])
     .filter(([, element]) => element !== null),
 );
@@ -324,10 +325,46 @@ function wireInbound() {
   textarea.addEventListener('input', () => { if (!metadata) return; const size = plaintextByteLength(textarea.value); report(size > metadata.max_plaintext_bytes ? `Too large — keep it under ${metadata.max_plaintext_bytes} bytes` : ''); });
 }
 
-async function start() {
+// One initial check and at most one explicit retry at a time. Keep Retry focusable
+// while busy, so a repeated failure does not strand keyboard or screen-reader users.
+async function loadLink(load, open) {
+  let checking = false;
+  let finished = false;
+  const button = $('check-retry');
+  const status = $('check-note');
+  async function attempt() {
+    if (checking || finished) return;
+    checking = true;
+    if (button) { button.setAttribute('aria-disabled', 'true'); button.textContent = 'Checking…'; }
+    if (status) status.textContent = 'Checking link…';
+    const outcome = await checkLink(load);
+    checking = false;
+    if (button) { button.setAttribute('aria-disabled', 'false'); button.textContent = 'Retry'; }
+    if (outcome.status === 'unreachable') {
+      if (status) status.textContent = 'Could not check the link. Try again.';
+      const firstFailure = $('app').dataset.state !== 'check-failed';
+      show('check-failed');
+      if (firstFailure) button?.focus();
+      return;
+    }
+    finished = true;
+    if (outcome.status === 'unavailable') return show('unavailable');
+    open(outcome.value, outcome.askedAt);
+  }
+  button?.addEventListener('click', attempt);
+  await attempt();
+}
+
+function start() {
   if (!capability) return show('unavailable');
-  const askedAt = performance.now();
-  metadata = await fetchMetadata({ capability, origin });
+  return loadLink(
+    (signal) => fetchMetadata({ capability, origin, signal }),
+    openForm,
+  );
+}
+
+function openForm(value, askedAt) {
+  metadata = value;
   // The kinds this page can serve. `files` is new here: until a requester could ask
   // for one, no file-kind drop was ever minted with a browser in mind, so the page
   // refused it rather than render a form whose textarea could not be submitted. It can
@@ -444,7 +481,14 @@ async function sendForm() {
 //     response does not cost the user the secret;
 //   - the decryption key never leaves this function. It came out of the fragment, it
 //     is handed to `revealSecret`, and it is used by `crypto.subtle` in this process.
-async function startReveal({ capability, key }) {
+function startReveal({ capability, key }) {
+  return loadLink(
+    (signal) => fetchOutboundMetadata({ capability, origin, signal }),
+    (meta, askedAt) => openGate({ capability, key, meta, askedAt }),
+  );
+}
+
+function openGate({ capability, key, meta, askedAt }) {
   const codeInput = $('reveal-code');
   const openButton = $('reveal-open');
   const revealNote = $('reveal-note');
@@ -453,8 +497,6 @@ async function startReveal({ capability, key }) {
   const revealedTitle = $('revealed-title');
   ttlTarget = $('reveal-ttl');
 
-  const askedAt = performance.now();
-  const meta = await fetchOutboundMetadata({ capability, origin });
   // One answer for expired, already revealed, reserved by another browser, out of
   // attempts and never existed. The page is not entitled to know which, and saying
   // so would tell a link-holder whether a secret was taken.

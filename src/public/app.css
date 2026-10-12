@@ -422,6 +422,7 @@ p { margin: .35rem 0; color: var(--muted); }
    than the thing it is about. Full-contrast ink, no alarm colour -- it is an
    instruction, not an alarm. */
 #note:empty,
+#check-note:empty,
 #revealed-note:empty { display: none; }
 .note-problem { color: var(--ink); }
 
@@ -457,8 +458,10 @@ p { margin: .35rem 0; color: var(--muted); }
   font: 18px/1 var(--text);
 }
 .primary:hover { background: var(--accent-hover); }
-.primary:disabled { cursor: progress; background: var(--accent); opacity: .62; }
-.primary:disabled::after { content: none; }
+.primary:disabled,
+.primary[aria-disabled="true"] { cursor: progress; background: var(--accent); opacity: .62; }
+.primary:disabled::after,
+.primary[aria-disabled="true"]::after { content: none; }
 
 /* Collapsed by default and below the action: true, and not what anyone came here to
    read. */
